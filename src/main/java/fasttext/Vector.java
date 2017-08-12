@@ -16,10 +16,6 @@ public class Vector {
     return this.m;
   }
 
-  public float[] data() {
-    return data;
-  }
-
   public void zero() {
     for (int i = 0; i < m; i++) {
       data[i] = 0.0f;

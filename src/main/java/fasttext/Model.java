@@ -207,7 +207,7 @@ public class Model {
     computeOutputSoftmax(hidden, output);
     for (int i = 0; i < osz; i++) {
       if (heap.size() == k && log(output.data[i]) < heap.peekFirst().first()) {
-        return;
+        continue;
       }
       heap.add(new Pair<>(log(output.data[i]), i));
     }

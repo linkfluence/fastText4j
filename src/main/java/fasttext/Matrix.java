@@ -131,10 +131,6 @@ public class Matrix {
     return this.n;
   }
 
-  public float[] data() {
-    return this.data;
-  }
-
   void save(OutputStream os) throws IOException {
     throw new UnsupportedOperationException("Not implemented yet");
   }

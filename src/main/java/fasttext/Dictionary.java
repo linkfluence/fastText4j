@@ -140,6 +140,10 @@ public class Dictionary {
     }
   }
 
+  public int getSize() {
+    return this.size;
+  }
+
   private long find(String w) {
     long h = hash(w) % MAX_VOCAB_SIZE;
     while (

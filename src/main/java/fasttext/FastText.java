@@ -59,11 +59,7 @@ public class FastText {
     return true;
   }
 
-  public List<FastTextPrediction> predict(String s, int k) {
-    List<Integer> words = new ArrayList<>();
-    List<Integer> labels = new ArrayList<>();
-    List<FastTextPrediction> predictions = new ArrayList<>(dict.nLabels());
-    dict.getLine(s, words, labels, model.rng());
+  private void predict(List<Integer> words, List<Integer> labels, List<FastTextPrediction> predictions, int k) {
     if (!words.isEmpty()) {
       Vector hidden = new Vector(args.getDimension());
       Vector output = new Vector(dict.nLabels());
@@ -73,12 +69,19 @@ public class FastText {
         .create();
       int[] input = words.stream().mapToInt(i->i).toArray();
       model.predict(input, k, modelPredictions, hidden, output);
-      for (Pair<Float, Integer> pred : modelPredictions) {
-        logger.warn(pred.first() + " " + pred.last() + " ");
+      while (!modelPredictions.isEmpty()) {
+        Pair<Float, Integer> pred = modelPredictions.pollFirst();
         predictions.add(new FastTextPrediction(dict.getLabel(pred.last()), pred.first()));
       }
-      System.out.println("\n");
     }
+  }
+
+  public List<FastTextPrediction> predict(String s, int k) {
+    List<Integer> words = new ArrayList<>();
+    List<Integer> labels = new ArrayList<>();
+    List<FastTextPrediction> predictions = new ArrayList<>(dict.nLabels());
+    dict.getLine(s, words, labels, model.rng());
+    predict(words, labels, predictions, k);
     return predictions;
   }
 
@@ -86,29 +89,23 @@ public class FastText {
     return predict(s, 1);
   }
 
+  public List<FastTextPrediction> predictAll(String s) { return predict(s, dict.nLabels()); }
+
   public List<FastTextPrediction> predict(List<String> tokens, int k) {
     List<Integer> words = new ArrayList<>();
     List<Integer> labels = new ArrayList<>();
     List<FastTextPrediction> predictions = new ArrayList<>(dict.nLabels());
     dict.getLine(tokens, words, labels, model.rng());
-    if (!words.isEmpty()) {
-      Vector hidden = new Vector(args.getDimension());
-      Vector output = new Vector(dict.nLabels());
-      MinMaxPriorityQueue<Pair<Float, Integer>> modelPredictions = MinMaxPriorityQueue
-        .orderedBy(new Model.HeapComparator<Integer>())
-        .expectedSize(dict.nLabels())
-        .create();
-      int[] input = words.stream().mapToInt(i->i).toArray();
-      model.predict(input, k, modelPredictions, hidden, output);
-      for (Pair<Float, Integer> pred : modelPredictions) {
-        predictions.add(new FastTextPrediction(dict.getLabel(pred.last()), pred.first()));
-      }
-    }
+    predict(words, labels, predictions, k);
     return predictions;
   }
 
   public List<FastTextPrediction> predict(List<String> tokens) {
     return predict(tokens, 1);
+  }
+
+  public List<FastTextPrediction> predictAll(List<String> tokens) {
+    return predict(tokens, dict.nLabels());
   }
 
   public Vector getWordVector(String word) {
@@ -117,7 +114,6 @@ public class FastText {
     vec.zero();
     for (int it : ngrams) {
       if (quant) {
-        logger.warn("Computing word vector from quantized model using approximations");
         vec.addRow(qinput, it);
       } else {
         vec.addRow(input, it);
@@ -166,7 +162,6 @@ public class FastText {
       vec.zero();
       if (ngrams.get(i) >= 0) {
         if (quant) {
-          logger.warn("Computing ngram model from quantized model using approximations");
           vec.addRow(qinput, ngrams.get(i));
         } else {
           vec.addRow(input, ngrams.get(i));
@@ -185,7 +180,6 @@ public class FastText {
     dict.getLine(text, tokens, labels, model.rng());
     for (Integer token : tokens) {
       if (quant) {
-        logger.warn("Computing text vector from quantized model using approximations");
         vec.addRow(input, token);
       } else {
         vec.addRow(qinput, token);
