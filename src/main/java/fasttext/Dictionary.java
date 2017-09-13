@@ -154,6 +154,10 @@ public class Dictionary {
     return h;
   }
 
+  public boolean contains(String w) {
+    return word2int.get(find(w)) != null;
+  }
+
   public void add(String w) {
     long h = find(w);
     nTokens++;
@@ -352,6 +356,12 @@ public class Dictionary {
     (cp == 0x3000)                     // space separator Zs:ideographic space
   );
 
+  public List<String> readLineTokens(List<String> tokens) {
+    List<String> lineTokens = new ArrayList<>(tokens);
+    lineTokens.add(EOS);
+    return lineTokens;
+  }
+
   public List<String> readLineTokens(String line) {
     List<String> lineTokens = new ArrayList<>();
     StringBuilder token = new StringBuilder();
@@ -427,7 +437,7 @@ public class Dictionary {
     return counts;
   }
 
-  public int getLine(List<String> tokens, List<Integer> words, List<Long> wordHashes, List<Integer> labels, Random rng) {
+  private int getDictLine(List<String> tokens, List<Integer> words, List<Long> wordHashes, List<Integer> labels, Random rng) {
     words.clear();
     labels.clear();
     wordHashes.clear();
@@ -461,21 +471,29 @@ public class Dictionary {
     return nTokens;
   }
 
-  public int getLine(List<String> tokens, List<Integer> words, List<Integer> labels, Random rng) {
+  private int getDictLine(List<String> tokens, List<Integer> words, List<Integer> labels, Random rng) {
     List<Long> wordHashes = new ArrayList<>();
-    int nTokens = getLine(tokens, words, wordHashes, labels, rng);
+    int nTokens = getDictLine(tokens, words, wordHashes, labels, rng);
     if (args.getModel() == Args.ModelName.SUP) {
       addNGrams(words, wordHashes, args.getWordNGrams());
     }
     return nTokens;
   }
 
+  public int getLine(List<String> tokens, List<Integer> words, List<Integer> labels, Random rng) {
+    return getDictLine(readLineTokens(tokens), words, labels, rng);
+  }
+
+  public int getLine(List<String> tokens, List<Integer> words, List<Long> wordHashes, List<Integer> labels, Random rng) {
+    return getDictLine(readLineTokens(tokens), words, wordHashes, labels, rng);
+  }
+
   public int getLine(String line, List<Integer> words, List<Long> wordHashes, List<Integer> labels, Random rng) {
-    return getLine(readLineTokens(line), words, wordHashes, labels, rng);
+    return getDictLine(readLineTokens(line), words, wordHashes, labels, rng);
   }
 
   public int getLine(String line, List<Integer> words, List<Integer> labels, Random rng) {
-    return getLine(readLineTokens(line), words, labels, rng);
+    return getDictLine(readLineTokens(line), words, labels, rng);
   }
 
   private void threshold(int t, int tl) {
