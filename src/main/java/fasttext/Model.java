@@ -1,6 +1,8 @@
 package fasttext;
 
 import com.google.common.collect.MinMaxPriorityQueue;
+import com.google.common.primitives.Booleans;
+import com.google.common.primitives.Ints;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -47,9 +49,9 @@ public class Model {
   private int[] negatives;
   private int negpos;
 
-  private List<List<Integer>> paths;
-  private List<List<Boolean>> codes;
-  private List<Node> tree;
+  private int[][] paths;
+  private boolean[][] codes;
+  private Node[] tree;
 
   private transient Random rng;
 
@@ -113,10 +115,10 @@ public class Model {
   public float hierarchicalSoftmax(int target, float lr) {
     float loss = 0.0f;
     grad.zero();
-    List<Boolean> binaryCodes = codes.get(target);
-    List<Integer> pathToRoot = paths.get(target);
-    for (int i = 0; i < pathToRoot.size(); i++) {
-      loss += binaryLogistic(pathToRoot.get(i), binaryCodes.get(i), lr);
+    boolean[] binaryCodes = codes[target];
+    int[] pathToRoot = paths[target];
+    for (int i = 0; i < pathToRoot.length; i++) {
+      loss += binaryLogistic(pathToRoot[i], binaryCodes[i], lr);
     }
     return loss;
   }
@@ -220,7 +222,7 @@ public class Model {
     if (heap.size() == k && score < heap.peekFirst().first()) {
       return;
     }
-    if (tree.get(node).left == -1 && tree.get(node).right == -1) {
+    if (tree[node].left == -1 && tree[node].right == -1) {
       heap.add(new Pair<>(score, node));
       while (heap.size() > k) {
         heap.pollLast();
@@ -233,8 +235,8 @@ public class Model {
     } else {
       f = sigmoid(wo.dotRow(hidden, node - osz));
     }
-    dfs(k, tree.get(node).left, score + log(1.0f - f), heap, hidden);
-    dfs(k, tree.get(node).right, score + log(f), heap, hidden);
+    dfs(k, tree[node].left, score + log(1.0f - f), heap, hidden);
+    dfs(k, tree[node].right, score + log(f), heap, hidden);
   }
 
   public void update(int[] input, int target, float lr) {
@@ -276,9 +278,9 @@ public class Model {
   }
 
   public void buildTree(long[] counts) {
-    tree = new ArrayList<>(2 * osz - 1);
-    paths = new ArrayList<>(osz);
-    codes = new ArrayList<>(osz);
+    tree = new Node[2 * osz - 1];
+    paths = new int[osz][];
+    codes = new boolean[osz][];
     for (int i = 0; i < 2 * osz - 1; i++) {
       Node n = new Node();
       n.parent = -1;
@@ -286,40 +288,40 @@ public class Model {
       n.right = -1;
       n.count = 1000000000000000L; // 1e15f
       n.binary = false;
-      tree.add(n);
+      tree[i] = n;
     }
     for (int i = 0; i < osz; i++) {
-      tree.get(i).count = counts[i];
+      tree[i].count = counts[i];
     }
     int leaf = osz - 1;
     int node = osz;
     for (int i = osz; i < 2 * osz - 1; i++) {
       int[] mini = new int[2];
       for (int j = 0; j < 2; j++) {
-        if (leaf >= 0 && tree.get(leaf).count < tree.get(node).count) {
+        if (leaf >= 0 && tree[leaf].count < tree[node].count) {
           mini[j] = leaf--;
         } else {
           mini[j] = node++;
         }
       }
-      tree.get(i).left = mini[0];
-      tree.get(i).right = mini[1];
-      tree.get(i).count = tree.get(mini[0]).count + tree.get(mini[1]).count;
-      tree.get(mini[0]).parent = i;
-      tree.get(mini[1]).parent = i;
-      tree.get(mini[1]).binary = true;
+      tree[i].left = mini[0];
+      tree[i].right = mini[1];
+      tree[i].count = tree[mini[0]].count + tree[mini[1]].count;
+      tree[mini[0]].parent = i;
+      tree[mini[1]].parent = i;
+      tree[mini[1]].binary = true;
     }
     for (int i = 0; i < osz; i++) {
       List<Integer> path = new ArrayList<>();
       List<Boolean> code = new ArrayList<>();
       int j = i;
-      while (tree.get(j).parent != -1) {
-        path.add(tree.get(j).parent - osz);
-        code.add(tree.get(j).binary);
-        j = tree.get(j).parent;
+      while (tree[j].parent != -1) {
+        path.add(tree[j].parent - osz);
+        code.add(tree[j].binary);
+        j = tree[j].parent;
       }
-      paths.add(path);
-      codes.add(code);
+      paths[i] = Ints.toArray(path);
+      codes[i] = Booleans.toArray(code);
     }
   }
 

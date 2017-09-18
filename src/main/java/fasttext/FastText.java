@@ -1,6 +1,8 @@
 package fasttext;
 
 import com.google.common.collect.MinMaxPriorityQueue;
+import com.google.common.primitives.Ints;
+import com.google.common.primitives.Longs;
 import org.apache.log4j.Logger;
 
 import java.io.*;
@@ -43,6 +45,12 @@ public class FastText {
 
   public FastText() {}
 
+  public Dictionary getDictionary() {
+    return this.dict;
+  }
+
+  public Args getArgs() { return this.args; }
+
   private boolean checkModel(InputStream is) throws IOException {
     int magic;
     int version;
@@ -67,7 +75,7 @@ public class FastText {
         .orderedBy(new Model.HeapComparator<Integer>())
         .expectedSize(dict.nLabels())
         .create();
-      int[] input = words.stream().mapToInt(i->i).toArray();
+      int[] input = Ints.toArray(words);
       model.predict(input, k, modelPredictions, hidden, output);
       while (!modelPredictions.isEmpty()) {
         Pair<Float, Integer> pred = modelPredictions.pollFirst();
@@ -381,10 +389,10 @@ public class FastText {
 
     if (args.getModel() == Args.ModelName.SUP) {
       logger.info("Initiating supervised model");
-      model.setTargetCounts(dict.getCounts(Dictionary.EntryType.LABEL).stream().mapToLong(i->i).toArray());
+      model.setTargetCounts(Longs.toArray(dict.getCounts(Dictionary.EntryType.LABEL)));
     } else {
       logger.info("Initiating unsupervised model");
-      model.setTargetCounts(dict.getCounts(Dictionary.EntryType.WORD).stream().mapToLong(i->i).toArray());
+      model.setTargetCounts(Longs.toArray(dict.getCounts(Dictionary.EntryType.WORD)));
     }
 
     long end = System.currentTimeMillis();

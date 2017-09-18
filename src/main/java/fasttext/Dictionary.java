@@ -13,8 +13,6 @@ import static fasttext.util.io.IOUtils.*;
 
 public class Dictionary {
 
-  private final static Logger logger = Logger.getLogger(Dictionary.class.getName());
-
   public enum EntryType {
 
     WORD(0), LABEL(1);
@@ -43,7 +41,7 @@ public class Dictionary {
 
     private String word;
     private long count;
-    private List<Integer> subwords = new ArrayList<>();
+    private List<Integer> subwords = null;
     private EntryType type;
 
     public Entry() {}
@@ -57,8 +55,14 @@ public class Dictionary {
       sb.append(count);
       sb.append(", type=");
       sb.append(type);
-      sb.append(", subwords=");
-      sb.append(subwords);
+      sb.append(", subwords=(");
+      for (int i = 0; i < subwords.size(); i++) {
+        sb.append(i);
+        if (i != subwords.size() - 1) {
+          sb.append(", ");
+        }
+      }
+      sb.append(")");
       sb.append("]");
       return sb.toString();
     }
@@ -98,9 +102,9 @@ public class Dictionary {
 
   private Charset charset = CHARSET;
 
-  private List<Entry> words;
+  private Entry[] words;
   private Map<Long, Integer> word2int;
-  private List<Double> pDiscard;
+  private double[] pDiscard;
 
   private long nTokens;
   private int nLabels;
@@ -111,9 +115,7 @@ public class Dictionary {
 
   public Dictionary(Args args) {
     this.args = args;
-    this.words = new ArrayList<>();
     this.word2int = new HashMap<>();
-    this.pDiscard = new ArrayList<>();
     this.size = 0;
     this.nWords = 0;
     this.nLabels = 0;
@@ -122,8 +124,8 @@ public class Dictionary {
 
   private void initNGrams() {
     for (int i = 0; i < size; i++) {
-      String word = BOW + words.get(i).word + EOW;
-      Entry e = words.get(i);
+      String word = BOW + words[i].word + EOW;
+      Entry e = words[i];
       if (e.subwords == null) {
         e.subwords = new ArrayList<>();
       }
@@ -133,10 +135,10 @@ public class Dictionary {
   }
 
   private void initTableDiscard() {
-    pDiscard = new ArrayList<>(size);
+    pDiscard = new double[size];
     for (int i = 0; i < size; i++) {
-      double d = (double) (words.get(i).count / nTokens);
-      pDiscard.add(Math.sqrt(args.getSamplingTreshold() / d) + args.getSamplingTreshold() / d);
+      double d = (double) (words[i].count / nTokens);
+      pDiscard[i] = Math.sqrt(args.getSamplingTreshold() / d) + args.getSamplingTreshold() / d;
     }
   }
 
@@ -148,7 +150,7 @@ public class Dictionary {
     long h = hash(w) % MAX_VOCAB_SIZE;
     while (
       !word2int.getOrDefault(h, WORD_ID_DEFAULT).equals(WORD_ID_DEFAULT) &&
-      !words.get(word2int.getOrDefault(h, WORD_ID_DEFAULT)).word.equals(w)) {
+      !words[word2int.getOrDefault(h, WORD_ID_DEFAULT)].word.equals(w)) {
       h = (h + 1) % MAX_VOCAB_SIZE;
     }
     return h;
@@ -156,21 +158,6 @@ public class Dictionary {
 
   public boolean contains(String w) {
     return word2int.get(find(w)) != null;
-  }
-
-  public void add(String w) {
-    long h = find(w);
-    nTokens++;
-    if (word2int.get(h).equals(WORD_ID_DEFAULT)) {
-      Entry e = new Entry();
-      e.word = w;
-      e.count = 1;
-      e.type = w.startsWith(args.getLabelPrefix()) ? EntryType.LABEL : EntryType.WORD;
-      words.add(e);
-      word2int.put(h, size ++);
-    } else {
-      words.get(word2int.get(h)).count++;
-    }
   }
 
   public long nTokens() {
@@ -197,19 +184,19 @@ public class Dictionary {
   public EntryType getType(int id) {
     assert(id >= 0);
     assert(id < nWords);
-    return words.get(id).type;
+    return words[id].type;
   }
 
   public String getWord(int id) {
     assert(id >= 0);
     assert(id < nWords);
-    return words.get(id).word;
+    return words[id].word;
   }
 
   public List<Integer> getNGrams(int id) {
     assert(id >= 0);
     assert(id < nWords);
-    return words.get(id).subwords;
+    return words[id].subwords;
   }
 
   public List<Integer> getNGrams(String word) {
@@ -244,7 +231,7 @@ public class Dictionary {
     if (args.getModel() == Args.ModelName.SUP) {
       return false;
     } else {
-      return rand > pDiscard.get(id);
+      return rand > pDiscard[id];
     }
   }
 
@@ -382,49 +369,10 @@ public class Dictionary {
     return lineTokens;
   }
 
-  public void readFromFile(InputStream is) throws IOException {
-    BufferedReader br = null;
-    try {
-      br = new BufferedReader(new InputStreamReader(is, CHARSET));
-      int minTreshold = 1;
-      String line = null;
-      while ((line = br.readLine()) != null) {
-        List<String> lineTokens = readLineTokens(line);
-        for (int i = 0; i < lineTokens.size(); i++) {
-          add(lineTokens.get(i));
-          if (nTokens % 1000000 == 0 && args.getVerboseLevel() > 1) {
-            logger.info("Read " + nTokens / 1000000 + "M words");
-          }
-          if (size > 0.75 * MAX_VOCAB_SIZE) {
-            minTreshold++;
-            threshold(minTreshold, minTreshold);
-          }
-        }
-      }
-    } finally {
-      if (br != null) {
-        br.close();
-      }
-    }
-
-    threshold(args.getMinCount(), args.getMinCountLabel());
-    initTableDiscard();
-    initNGrams();
-    if (args.getVerboseLevel() > 0) {
-      logger.info("Read " + nTokens / 1000000 + "M words");
-      logger.info("Number of words " + nWords);
-      logger.info("Number of labels " + nLabels);
-    }
-    if (size == 0) {
-      logger.error("Empty vocabulary. Try a smaller -minCount value.");
-      throw new IllegalArgumentException("Empty vocabulary. Try a smaller -minCount value.");
-    }
-  }
-
   public String getLabel(int lid) {
     assert(lid >= 0);
     assert(lid < nLabels);
-    return words.get(lid + nWords).word;
+    return words[lid + nWords].word;
   }
 
   public List<Long> getCounts(EntryType type) {
@@ -496,53 +444,6 @@ public class Dictionary {
     return getDictLine(readLineTokens(line), words, labels, rng);
   }
 
-  private void threshold(int t, int tl) {
-    words.sort(new EntryComparator());
-    for (int i = 0; i < words.size(); i++) {
-      Entry w = words.get(i);
-      if ((w.type == EntryType.WORD && w.count < t) || (w.type == EntryType.LABEL && w.count < tl)) {
-        words.remove(i);
-      }
-    }
-    size = 0;
-    nWords = 0;
-    nLabels = 0;
-    word2int.clear();
-    for (Entry w : words) {
-      long h = find(w.word);
-      word2int.put(h, size++);
-      if (w.type == EntryType.WORD) {
-        nWords++;
-      } else if (w.type == EntryType.LABEL) {
-        nLabels++;
-      }
-    }
-  }
-
-  public void prune(List<Integer> idx) {
-    List<Integer> words = new ArrayList<>();
-    List<Integer> ngrams = new ArrayList<>();
-    for (Integer id : idx) {
-      if (id < nWords) {
-        words.add(id);
-      } else {
-        ngrams.add(id);
-      }
-    }
-    Collections.sort(words);
-    idx = words;
-
-    if (ngrams.size() > 0) {
-      int j = 0;
-      for (Integer ngram : ngrams) {
-        pruneIdx.put(ngram - nWords, j);
-        j++;
-      }
-    }
-    nWords = words.size();
-    size = nWords + nLabels;
-  }
-
   private void setCharset(String charsetName) {
     this.charset = Charset.forName(charsetName);
   }
@@ -559,14 +460,14 @@ public class Dictionary {
     pruneIdxSize = readLong(is);
 
     word2int = new HashMap<>(size);
-    words = new ArrayList<>(size);
+    words = new Entry[size];
 
     for (int i = 0; i < size; i++) {
       Entry e = new Entry();
       e.word = readString(is, charset.name());
       e.count = readLong(is);
       e.type = EntryType.fromValue(readByte(is));
-      words.add(e);
+      words[i] = e;
       word2int.put(find(e.word), i);
     }
 
