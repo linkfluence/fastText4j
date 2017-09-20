@@ -6,7 +6,7 @@
 
     <groupId>fasttext</groupId>
     <artifactId>fasttext4j</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
+    <version>0.0.1</version>
     <description>Facebook Research FastText for Java</description>
 
     <dependencies>
