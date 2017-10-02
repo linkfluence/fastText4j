@@ -1,0 +1,40 @@
+<assembly xmlns="http://maven.apache.org/ASSEMBLY/2.0.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/ASSEMBLY/2.0.0 http://maven.apache.org/xsd/assembly-2.0.0.xsd">
+    <id>app</id>
+    <formats>
+        <format>zip</format>
+    </formats>
+    <includeBaseDirectory>false</includeBaseDirectory>
+    <fileSets>
+        <fileSet>
+            <includes>
+                <include>README*</include>
+                <include>NOTICE*</include>
+                <include>LICENSE*</include>
+            </includes>
+        </fileSet>
+        <fileSet>
+            <directory>src/main/sh</directory>
+            <filtered>true</filtered>
+            <fileMode>0754</fileMode>
+            <includes>
+                <include>fasttext-mmap.sh</include>
+            </includes>
+            <outputDirectory>/</outputDirectory>
+        </fileSet>
+
+    </fileSets>
+    <!-- use this section if you want to package dependencies -->
+    <dependencySets>
+        <dependencySet>
+            <outputDirectory>lib</outputDirectory>
+            <excludes>
+                <exclude>*:pom</exclude>
+            </excludes>
+            <useStrictFiltering>true</useStrictFiltering>
+            <useProjectArtifact>true</useProjectArtifact>
+            <scope>runtime</scope>
+        </dependencySet>
+    </dependencySets>
+</assembly>

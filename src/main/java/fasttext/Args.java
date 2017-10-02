@@ -1,11 +1,9 @@
 package fasttext;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
+import fasttext.store.InputStreamFastTextInput;
+import fasttext.store.OutputStreamFastTextOutput;
 
-import static fasttext.util.io.IOUtils.readInt;
-import static fasttext.util.io.IOUtils.readDouble;
+import java.io.IOException;
 
 public class Args {
 
@@ -57,35 +55,40 @@ public class Args {
 
   }
 
-  private double lr = 0.05f;
-  private int dim = 100;
-  private int ws = 5;
-  private int epoch = 5;
-  private int minCount = 5;
-  private int minCountLabel = 0;
-  private int neg = 5;
-  private int wordNgrams = 1;
-  private LossName loss = LossName.NS;
-  private ModelName model = ModelName.SG;
-  private int bucket = 2000000;
-  private int minn = 3;
-  private int maxn = 6;
-  private int thread = 12;
-  private int lrUpdateRate = 100;
-  private double t = 1e-4;
+  private final int dim;
+  private final int ws;
+  private final int epoch;
+  private final int minCount;
+  private final int neg;
+  private final int wordNgrams;
+  private final LossName loss;
+  private final ModelName model;
+  private final int bucket;
+  private final int minn;
+  private final int maxn;
+  private final int lrUpdateRate;
+  private final double t;
+
   private String label = "__label__";
   private int verbose = 2;
-  private String pretrainedVectors = "";
-  private int saveOutput = 0;
-
   private boolean qout = false;
-  private boolean retrain = false;
-  private boolean qnorm = false;
-  private int cutoff = 0;
-  private int dsub = 2;
 
-  public double getLearningRate() {
-    return this.lr;
+  private Args(int dim, int ws, int epoch, int minCount, int neg, int wordNgrams,
+               LossName loss, ModelName model, int bucket, int minn, int maxn,
+               int lrUpdateRate, double t) {
+    this.dim = dim;
+    this.ws = ws;
+    this.epoch = epoch;
+    this.minCount = minCount;
+    this.neg = neg;
+    this.wordNgrams = wordNgrams;
+    this.loss = loss;
+    this.model = model;
+    this.bucket = bucket;
+    this.minn = minn;
+    this.maxn = maxn;
+    this.lrUpdateRate = lrUpdateRate;
+    this.t = t;
   }
 
   public int getDimension() {
@@ -102,10 +105,6 @@ public class Args {
 
   public int getMinCount() {
     return this.minCount;
-  }
-
-  public int getMinCountLabel() {
-    return this.minCountLabel;
   }
 
   public int getNeg() {
@@ -136,10 +135,6 @@ public class Args {
     return this.maxn;
   }
 
-  public int getThread() {
-    return this.thread;
-  }
-
   public int getLearningRateUpdateRate() {
     return this.lrUpdateRate;
   }
@@ -152,12 +147,14 @@ public class Args {
     return this.label;
   }
 
+  public void setLabelPrefix(String label) { this.label = label; }
+
   public int getVerboseLevel() {
     return this.verbose;
   }
 
-  public String getPretrainedVectors() {
-    return this.pretrainedVectors;
+  public void setVerboseLevel(int verbose) {
+    this.verbose = verbose;
   }
 
   public boolean getQOut() {
@@ -168,44 +165,38 @@ public class Args {
     this.qout = qout;
   }
 
-  public boolean getQNorm() {
-    return this.qnorm;
+  public void save(OutputStreamFastTextOutput os) throws IOException {
+    os.writeInt(dim);
+    os.writeInt(ws);
+    os.writeInt(epoch);
+    os.writeInt(minCount);
+    os.writeInt(neg);
+    os.writeInt(wordNgrams);
+    os.writeInt(loss.getValue());
+    os.writeInt(model.getValue());
+    os.writeInt(bucket);
+    os.writeInt(minn);
+    os.writeInt(maxn);
+    os.writeInt(lrUpdateRate);
+    os.writeDouble(t);
   }
 
-  public boolean getRetrain() {
-    return this.retrain;
-  }
-
-  public int getCutOff() {
-    return this.cutoff;
-  }
-
-  public int getSubDimension() {
-    return this.dsub;
-  }
-
-  public int getSaveOutput() {
-    return this.saveOutput;
-  }
-
-  void save(OutputStream os) throws IOException {
-    throw new UnsupportedOperationException("Not implemented yet");
-  }
-
-  void load(InputStream is) throws IOException {
-    dim = readInt(is);
-    ws = readInt(is);
-    epoch = readInt(is);
-    minCount = readInt(is);
-    neg = readInt(is);
-    wordNgrams = readInt(is);
-    loss = LossName.fromValue(readInt(is));
-    model = ModelName.fromValue(readInt(is));
-    bucket = readInt(is);
-    minn = readInt(is);
-    maxn = readInt(is);
-    lrUpdateRate = readInt(is);
-    t = readDouble(is);
+  public static Args load(InputStreamFastTextInput is) throws IOException {
+    int dim = is.readInt();
+    int ws = is.readInt();
+    int epoch = is.readInt();
+    int minCount = is.readInt();
+    int neg = is.readInt();
+    int wordNgrams = is.readInt();
+    LossName loss = LossName.fromValue(is.readInt());
+    ModelName model = ModelName.fromValue(is.readInt());
+    int bucket = is.readInt();
+    int minn = is.readInt();
+    int maxn = is.readInt();
+    int lrUpdateRate = is.readInt();
+    double t = is.readDouble();
+    return new Args(dim, ws, epoch, minCount, neg, wordNgrams,
+      loss, model, bucket, minn, maxn, lrUpdateRate, t);
   }
 
 }

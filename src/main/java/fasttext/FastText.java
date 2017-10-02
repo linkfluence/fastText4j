@@ -3,21 +3,44 @@ package fasttext;
 import com.google.common.collect.MinMaxPriorityQueue;
 import com.google.common.primitives.Ints;
 import com.google.common.primitives.Longs;
+import fasttext.mmap.MMapDictionary;
+import fasttext.mmap.MMapMatrix;
+import fasttext.mmap.MMapQMatrix;
+import fasttext.store.InputStreamFastTextInput;
+import fasttext.store.MMapFile;
+import fasttext.store.OutputStreamFastTextOutput;
+import org.apache.commons.cli.*;
 import org.apache.log4j.Logger;
 
 import java.io.*;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
-
-import static fasttext.util.io.IOUtils.readBoolean;
-import static fasttext.util.io.IOUtils.readInt;
+import java.nio.file.FileSystems;
+import java.nio.file.Path;
+import java.util.*;
 
 /**
- * Java FastText implementation
- * Only prediction (supervised, unsupervised) is implemented
- * Please use Cpp FastText for train, test and quantization
+ * Java FastText implementation.
+ *
+ * <p>Only prediction (supervised, unsupervised) is implemented.
+ * Please use Cpp FastText for train, test and quantization.
+ *
+ * <p>Two implementations of the FastText model are available. One of them
+ * is an in-memory implementation, which is a simple port of the C++ version.
+ * The second is a memory-mapped version, using memory-mapped IO for reading
+ * the dictionary and the input matrix.
+ *
+ * <p>The memory-mapped {@code FastText} may only be used from one thread,
+ * because it is not thread safe (it keeps internal state like mmap file position).
+ * To allow multithreaded use, every {@code FastText} instance must be cloned before
+ * used in another thread. Subclasses must therefore implement {@link #clone()},
+ * returning a new {@code FastText} which operates on the same underlying
+ * resources, but positioned independently.
+ *
+ * <p>The memory-mapped {@code FastText} should be closed to properly close
+ * the underlying resources.
+ *
+ * <p>The memory-mapped {@code FastText} requires the regular fastText binary model
+ * to be converted.
+ * {@see saveAsMemoryMappedModel(String)}
  */
 public class FastText {
 
@@ -26,40 +49,77 @@ public class FastText {
 
   private final static Logger logger = Logger.getLogger(FastText.class.getName());
 
-  private Args args;
-  private Dictionary dict;
+  private final Args args;
 
+  private BaseDictionary dict;
   private Model model;
 
-  private Matrix input;
+  private ReadableMatrix input;
   private Matrix output;
 
-  private QMatrix qinput;
+  private ReadableQMatrix qinput;
   private QMatrix qoutput;
 
-  private boolean quant;
+  private final boolean quant;
+  private final boolean mmap;
 
   private Matrix wordVectors = null;
 
-  private int tokenCount;
+  private FastText(Args args,
+                   BaseDictionary dict,
+                   ReadableMatrix input,
+                   Matrix output,
+                   boolean quant,
+                   ReadableQMatrix qinput,
+                   QMatrix qoutput,
+                   boolean mmap) {
+    this.args = args;
+    this.dict = dict;
+    this.input = input;
+    this.output = output;
+    this.quant = quant;
+    this.qinput = qinput;
+    this.qoutput = qoutput;
+    this.mmap = mmap;
+    this.model = buildModel(args, input, output, quant, args.getQOut(), qinput, qoutput);
+  }
 
-  public FastText() {}
+  private Model buildModel(Args args,
+                           ReadableMatrix input,
+                           Matrix output,
+                           boolean quant,
+                           boolean qout,
+                           ReadableQMatrix qinput,
+                           QMatrix qoutput) {
+    Model m = new Model(args, 0, input, output, quant, qout, qinput, qoutput);
+    if (args.getModel() == Args.ModelName.SUP) {
+      m.setTargetCounts(Longs.toArray(dict.getCounts(Dictionary.EntryType.LABEL)));
+    } else {
+      m.setTargetCounts(Longs.toArray(dict.getCounts(Dictionary.EntryType.WORD)));
+    }
+    return m;
+  }
 
-  public Dictionary getDictionary() {
+  public BaseDictionary getDictionary() {
     return this.dict;
   }
 
   public Args getArgs() { return this.args; }
 
-  private boolean checkModel(InputStream is) throws IOException {
+  private void signModel(OutputStreamFastTextOutput os) throws IOException {
+    os.writeInt(FASTTEXT_FILEFORMAT_MAGIC_INT);
+    os.writeInt(FASTTEXT_VERSION);
+  }
+
+  private static boolean checkModel(InputStreamFastTextInput is) throws IOException {
     int magic;
     int version;
-    magic = readInt(is);
+    magic = is.readInt();
     if (magic != FASTTEXT_FILEFORMAT_MAGIC_INT) {
       logger.error("Unhandled file format");
       return false;
     }
-    version = readInt(is);
+    version = is.readInt();
     if (version != FASTTEXT_VERSION) {
       logger.error("Input model version (" + version + ") doesn't match current version (" + FASTTEXT_VERSION + ")");
       return false;
@@ -84,6 +144,13 @@ public class FastText {
     }
   }
 
+  /**
+   * Classifies a document represented as a String with whitespace separated tokens.
+   * Returns the prediction with highest probability.
+   * @param s input document
+   * @param k number of predictions
+   * @return k top predictions
+   */
   public List<FastTextPrediction> predict(String s, int k) {
     List<Integer> words = new ArrayList<>();
     List<Integer> labels = new ArrayList<>();
@@ -93,12 +160,36 @@ public class FastText {
     return predictions;
   }
 
-  public List<FastTextPrediction> predict(String s) {
-    return predict(s, 1);
+  /**
+   * Classifies a document represented as a String with whitespace separated tokens.
+   * Returns the prediction with highest probability.
+   * @param s input document
+   * @return top prediction
+   */
+  public FastTextPrediction predict(String s) {
+    List<FastTextPrediction> predictions = predict(s, 1);
+    if (!predictions.isEmpty()) {
+      return predictions.get(0);
+    } else {
+      return null;
+    }
   }
 
+  /**
+   * Classifies a document represented as a String with whitespace separated tokens.
+   * Returns prediction on all labels.
+   * @param s input document
+   * @return predictions on all labels
+   */
   public List<FastTextPrediction> predictAll(String s) { return predict(s, dict.nLabels()); }
 
+  /**
+   * Classifies a document represented as a list of tokens.
+   * Returns the prediction with highest probability.
+   * @param tokens input document
+   * @param k number of predictions
+   * @return k top predictions
+   */
   public List<FastTextPrediction> predict(List<String> tokens, int k) {
     List<Integer> words = new ArrayList<>();
     List<Integer> labels = new ArrayList<>();
@@ -108,14 +199,36 @@ public class FastText {
     return predictions;
   }
 
-  public List<FastTextPrediction> predict(List<String> tokens) {
-    return predict(tokens, 1);
+  /**
+   * Classifies a document represented as a list of tokens.
+   * Returns the prediction with highest probability.
+   * @param tokens input document
+   * @return top prediction
+   */
+  public FastTextPrediction predict(List<String> tokens) {
+    List<FastTextPrediction> predictions = predict(tokens, 1);
+    if (!predictions.isEmpty()) {
+      return predictions.get(0);
+    } else {
+      return null;
+    }
   }
 
+  /**
+   * Classifies a document represented as a list of tokens.
+   * Returns prediction on all labels.
+   * @param tokens input document
+   * @return predictions on all labels
+   */
   public List<FastTextPrediction> predictAll(List<String> tokens) {
     return predict(tokens, dict.nLabels());
   }
 
+  /**
+   * Gives the vector of a word.
+   * @param word
+   * @return word vector
+   */
   public Vector getWordVector(String word) {
     Vector vec = new Vector(args.getDimension());
     List<Integer> ngrams = dict.getNGrams(word);
@@ -133,6 +246,11 @@ public class FastText {
     return vec;
   }
 
+  /**
+   * Gives the vectors of a list of words.
+   * @param words
+   * @return word vectors
+   */
   public List<Vector> getWordVectors(List<String> words) {
     List<Vector> vecs = new ArrayList<>(words.size());
     for (String word : words) {
@@ -141,6 +259,11 @@ public class FastText {
     return vecs;
   }
 
+  /**
+   * Gives the vector of a sentence.
+   * @param sentence Tokenized sentence
+   * @return sentence vector
+   */
   public Vector getSentenceVector(List<String> sentence) {
     Vector vec = new Vector(args.getDimension());
     Vector svec = new Vector(args.getDimension());
@@ -154,6 +277,11 @@ public class FastText {
     return svec;
   }
 
+  /**
+   * Gives the vectors corresponding to a list of sentences.
+   * @param sentences List of tokenized sentence
+   * @return List of sentence vectors
+   */
   public List<Vector> getSentenceVectors(List<List<String>> sentences) {
     List<Vector> svecs = new ArrayList<>(sentences.size());
     for (List<String> s : sentences) {
@@ -162,6 +290,11 @@ public class FastText {
     return svecs;
   }
 
+  /**
+   * Gives the ngram vectors for a word.
+   * @param word query word
+   * @return ngram vectors
+   */
   public List<Vector> ngramVectors(String word) {
     List<Vector> vecs = new ArrayList<>();
     Vector vec = new Vector(args.getDimension());
@@ -180,6 +313,11 @@ public class FastText {
     return vecs;
   }
 
+  /**
+   * Gives the vector for a text (used in supervised settings).
+   * @param text input text
+   * @return text vector
+   */
   public Vector textVector(String text) {
     List<Integer> tokens = new ArrayList<>();
     List<Integer> labels = new ArrayList<>();
@@ -199,6 +337,11 @@ public class FastText {
     return vec;
   }
 
+  /**
+   * Gives the vectors for a list of text (used in supervised settings).
+   * @param texts list of text
+   * @return text vectors
+   */
   public List<Vector> textVectors(List<String> texts) {
     List<Vector> vecs = new ArrayList<>(texts.size());
     for (String text : texts) {
@@ -252,6 +395,12 @@ public class FastText {
     return syns;
   }
 
+  /**
+   * Nearest neighbor queries. Returns the closest words to a query word.
+   * @param queryWord query word
+   * @param k nearest neighbors number
+   * @return k nearest neighbors
+   */
   public List<FastTextSynonym> nn(String queryWord, int k) {
     Set<String> banSet = new HashSet<>();
     banSet.add(queryWord);
@@ -259,6 +408,14 @@ public class FastText {
     return findNN(queryVec, k, banSet);
   }
 
+  /**
+   * Word analogies. It takes a word triplet and returns the analogies.
+   * @param queryA first word of the triplet
+   * @param queryB second word of the triplet
+   * @param queryC last word of the triplet
+   * @param k number of analogies
+   * @return k analogies
+   */
   public List<FastTextSynonym> analogies(String queryA, String queryB, String queryC, int k) {
     Set<String> banSet = new HashSet<>();
     precomputeWordVectors();
@@ -281,124 +438,327 @@ public class FastText {
     return findNN(query, k, banSet);
   }
 
-  public void supervised(Model model, float lr, List<Integer> line, List<Integer> labels) {
-    throw new UnsupportedOperationException("Not implemented yet");
-  }
-
-  public void cbow(Model model, float lr, List<Integer> line) {
-    throw new UnsupportedOperationException("Not implemented yet");
-  }
-
-  public void skipgram(Model model, float lr, List<Integer> line) {
-    throw new UnsupportedOperationException("Not implemented yet");
-  }
-
-  public void quantize(Args qargs) {
-    throw new UnsupportedOperationException("Not implemented yet");
-  }
-
-  public void test(InputStream is, int k) {
-    throw new UnsupportedOperationException("Not implemented yet");
-  }
-
-  private void trainThread(int threadId) {
-    throw new UnsupportedOperationException("Not implemented yet");
-  }
-
-  public void train(Args args) {
-    throw new UnsupportedOperationException("Not implemented yet");
-  }
-
-  public void loadVectors(String filename) {
-    throw new UnsupportedOperationException("Not implemented yet");
-  }
-
-  public void saveOutput() throws IOException {
-    throw new UnsupportedOperationException("Not implemented yet");
-  }
-
-  public void saveModel() throws IOException {
-    throw new UnsupportedOperationException("Not implemented yet");
-  }
-
-  public void loadModel(String filename) throws IOException {
-    logger.info("Loading FastText model from: " + filename);
-    File f = new File(filename);
-    if (!f.canRead()) {
-      logger.error("Model file cannot be opened for loading");
-      throw new IllegalArgumentException("Model file cannot be opened for loading");
+  @Override
+  public FastText clone() throws CloneNotSupportedException {
+    FastText ft = this;
+    if (mmap) {
+      ft.dict = dict.clone();
+      if (quant) {
+        ft.qinput = qinput.clone();
+      } else {
+        ft.input = input.clone();
+      }
+      if (quant && args.getQOut()) {
+        ft.qoutput = new QMatrix(qoutput);
+      } else {
+        ft.output = new Matrix(output);
+      }
+      ft.model = buildModel(ft.args, ft.input, ft.output,
+        ft.quant, ft.args.getQOut(), ft.qinput, ft.qoutput);
     }
-    BufferedInputStream is = null;
-    try {
-      is = new BufferedInputStream(new FileInputStream(f));
-      loadModel(is);
-    } finally {
-      if (is != null) {
-        is.close();
+    return ft;
+  }
+
+  public void close() throws IOException {
+    dict.close();
+    if (quant) {
+      qinput.close();
+    } else {
+      input.close();
+    }
+  }
+
+  /**
+   * Load fastText model from file path.
+   * If the file is a directory, it tries to load a memory-mapped model.
+   * If it is a single file, it tries to open an in-memory fastText model from binary model.
+   */
+  public static FastText loadModel(String filename) throws IOException {
+    File f = new File(filename);
+    if (f.isDirectory()) { // Memory-mapped format
+      logger.info("Loading memory-mapped FastText model from: " + filename);
+      File fb = new File(f.getAbsolutePath() + "/model.bin");
+      File fq = new File(f.getAbsolutePath() + "/model.ftz");
+      File modelFile;
+      if (fb.exists()) {
+        modelFile = fb;
+      } else if (fq.exists()) {
+        modelFile = fq;
+      } else {
+        throw new IOException("Model core file cannot be opened for loading");
+      }
+      Path dictFilePath = FileSystems.getDefault().getPath(f.getAbsolutePath() + "/dict.mmap");
+      Path inFilePath = FileSystems.getDefault().getPath(f.getAbsolutePath() + "/in.mmap");
+      MMapFile dictFile = new MMapFile(dictFilePath);
+      MMapFile inFile = new MMapFile(inFilePath);
+      try (InputStream is = new FileInputStream(modelFile)) {
+        return loadModel(is, dictFile, inFile);
+      }
+    } else {
+      logger.info("Loading in-memory FastText model from:" + filename);
+      if (!f.canRead()) {
+        throw new IllegalArgumentException("Model file cannot be opened for loading");
+      }
+      try (InputStream is = new FileInputStream(f)) {
+        return loadModel(is);
       }
     }
   }
 
-  public void loadModel(InputStream is) throws IOException {
-    long start = System.currentTimeMillis();
-
-    if (!checkModel(is)) {
-      throw new IllegalArgumentException("Model file has wrong file format");
+  private static FastText loadModel(InputStream in,
+                                    MMapFile dictFile,
+                                    MMapFile inputFile) throws IOException {
+    try (InputStreamFastTextInput is = new InputStreamFastTextInput(in)) {
+      if (!checkModel(is)) {
+        throw new IllegalArgumentException("Model file has wrong file format");
+      }
+      long start = System.nanoTime();
+      logger.info("Loading model arguments");
+      Args args = Args.load(is);
+      logger.info("Loading memory-mapped dictionary");
+      MMapDictionary dict = MMapDictionary.load(args, dictFile);
+      boolean quant = is.readBoolean();
+      MMapMatrix wi = null;
+      MMapQMatrix qwi = null;
+      if (quant) {
+        logger.info("Model is quantized. Loading quantized input matrix");
+        qwi = MMapQMatrix.load(inputFile);
+        logger.info("... done");
+      } else {
+        logger.info("Loading input matrix");
+        wi = MMapMatrix.load(inputFile);
+        logger.info("... done");
+      }
+      boolean qout = is.readBoolean();
+      args.setQOut(qout);
+      Matrix wo = null;
+      QMatrix qwo = null;
+      if (quant && args.getQOut()) {
+        logger.info("Classifier is quantized. Loading quantized output matrix");
+        qwo = QMatrix.load(is);
+        logger.info("... done");
+      } else {
+        logger.info("Loading output matrix");
+        wo = Matrix.load(is);
+        logger.info("... done");
+      }
+      logger.info("Initiating model");
+      FastText fastText = new FastText(args, dict, wi, wo, quant, qwi, qwo, true);
+      long end = System.nanoTime();
+      double took = (end - start) / 1000000000d;
+      logger.info(String.format(Locale.ENGLISH, "FastText model loaded (%.3fs)", took));
+      return fastText;
     }
 
-    logger.info("Loading model arguments");
-    args = new Args();
-    args.load(is);
+  }
 
-    logger.info("Loading dictionary");
-    dict = new Dictionary(args);
-    dict.load(is);
+  /**
+   * Load a fastText model from a fastText binary format, reading from InputStream in.
+   */
+  public static FastText loadModel(InputStream in) throws IOException {
+    try (InputStreamFastTextInput is = new InputStreamFastTextInput(in)) {
+      if (!checkModel(is)) {
+        throw new IllegalArgumentException("Model file has wrong file format");
+      }
+      long start = System.nanoTime();
+      logger.info("Loading model arguments");
+      Args args = Args.load(is);
+      logger.info("Loading dictionary");
+      Dictionary dict = Dictionary.load(args, is);
+      boolean quant = is.readBoolean();
+      Matrix wi = null;
+      QMatrix qwi = null;
+      if (quant) {
+        logger.info("Model is quantized. Loading quantized input matrix");
+        qwi = QMatrix.load(is);
+        logger.info("... done");
+      } else {
+        logger.info("Loading input matrix");
+        wi = Matrix.load(is);
+        logger.info("... done");
+      }
+      boolean qout = is.readBoolean();
+      args.setQOut(qout);
+      Matrix wo = null;
+      QMatrix qwo = null;
+      if (quant && args.getQOut()) {
+        logger.info("Classifier is quantized. Loading quantized output matrix");
+        qwo = QMatrix.load(is);
+        logger.info("... done");
+      } else {
+        logger.info("Loading output matrix");
+        wo = Matrix.load(is);
+        logger.info("... done");
+      }
+      logger.info("Initiating model");
+      FastText fastText = new FastText(args, dict, wi, wo, quant, qwi, qwo, false);
+      long end = System.nanoTime();
+      double took = (end - start) / 1000000000d;
+      logger.info(String.format(Locale.ENGLISH, "FastText model loaded (%.3fs)", took));
+      return fastText;
+    }
+  }
 
-    boolean quantInput = readBoolean(is);
-    if (quantInput) {
-      logger.info("Model is quantized. Loading quantized input matrix");
-      quant = true;
-      qinput = new QMatrix();
-      qinput.load(is);
-      logger.info("... done");
+  private void ensureFilePath(File f) {
+    if (f.exists()) {
+      f.delete();
+    }
+    if (f.getParentFile() != null) {
+      f.getParentFile().mkdirs();
+    }
+  }
+
+  /**
+   * Save the current fastText model to a fastText binary format to the specified file path.
+   */
+  public void saveModel(String filename) throws IOException {
+    if (mmap) {
+      throw new IllegalArgumentException("Cannot save memory-mapped model");
+    }
+    if (quant) {
+      filename += ".ftz";
     } else {
-      logger.info("Loading input matrix");
-      quant = false;
-      input = new Matrix();
-      input.load(is);
-      logger.info("... done");
+      filename += ".bin";
+    }
+    File f = new File(filename);
+    ensureFilePath(f);
+    if (args.getVerboseLevel() > 1) {
+      logger.info("Saving model to " + f.getCanonicalPath());
+    }
+    try (OutputStream os = new FileOutputStream(f)) {
+      saveModel(os);
+    }
+    logger.info("... done");
+  }
+
+  /**
+   * Save the current fastText model to a fastText binary format, writing to OutputStream out.
+   */
+  public void saveModel(OutputStream out) throws IOException {
+    if (mmap) {
+      throw new IllegalArgumentException("Cannot save memory-mapped model");
+    }
+    try (OutputStreamFastTextOutput os = new OutputStreamFastTextOutput(out)) {
+      signModel(os);
+      args.save(os);
+      ((Dictionary) dict).save(os);
+      os.writeBoolean(quant);
+      if (quant) {
+        ((QMatrix) qinput).save(os);
+      } else {
+        ((Matrix) input).save(os);
+      }
+      os.writeBoolean(args.getQOut());
+      if (quant && args.getQOut()) {
+        qoutput.save(os);
+      } else {
+        output.save(os);
+      }
+    }
+  }
+
+  /**
+   * Save the current fastText model to a memory-mapped model.
+   * @param dirName mmap model output path
+   */
+  public void saveAsMemoryMappedModel(String dirName) throws IOException {
+    if (mmap) {
+      throw new IllegalArgumentException("Cannot save from memory-mapped model");
     }
 
-    boolean qout = readBoolean(is);
-    args.setQOut(qout);
-    if (quant && args.getQOut()) {
-      logger.info("Classifier is quantized. Loading quantized output matrix");
-      qoutput = new QMatrix();
-      qoutput.load(is);
-      logger.info("... done");
+    long start = System.nanoTime();
+    File dir = new File(dirName);
+
+    String modelFilename = "model";
+    String dictionaryFilename = "dict";
+    String inputFilename = "in";
+
+    if (quant) {
+      modelFilename += ".ftz";
     } else {
-      logger.info("Loading output matrix");
-      output = new Matrix();
-      output.load(is);
-      logger.info("... done");
+      modelFilename += ".bin";
+    }
+    File modelFile = new File(dir.getAbsolutePath() + "/" + modelFilename);
+    ensureFilePath(modelFile);
+    if (args.getVerboseLevel() > 1) {
+      logger.info("Saving core model to " + modelFile.getCanonicalPath());
+    }
+    try (OutputStreamFastTextOutput os = new OutputStreamFastTextOutput(new FileOutputStream(modelFile))) {
+      signModel(os);
+      args.save(os);
+      os.writeBoolean(quant);
+      os.writeBoolean(args.getQOut());
+      if (quant && args.getQOut()) {
+        qoutput.save(os);
+      } else {
+        output.save(os);
+      }
     }
 
-    logger.info("Loading ML model");
-    model = new Model(input, output, args, 0);
-    model.setQuantization(qinput, qoutput, quant, args.getQOut());
-
-    if (args.getModel() == Args.ModelName.SUP) {
-      logger.info("Initiating supervised model");
-      model.setTargetCounts(Longs.toArray(dict.getCounts(Dictionary.EntryType.LABEL)));
-    } else {
-      logger.info("Initiating unsupervised model");
-      model.setTargetCounts(Longs.toArray(dict.getCounts(Dictionary.EntryType.WORD)));
+    dictionaryFilename += ".mmap";
+    File dictFile = new File(dir.getAbsolutePath() + "/" + dictionaryFilename);
+    ensureFilePath(dictFile);
+    if (args.getVerboseLevel() > 1) {
+      logger.info("Saving memory-mapped dictionary model to " + dictFile.getCanonicalPath());
+    }
+    try (FileOutputStream os = new FileOutputStream(dictFile)) {
+      dict.saveToMMap(os);
     }
 
-    long end = System.currentTimeMillis();
-    long took = (end - start) / 1000;
+    inputFilename += ".mmap";
+    File inputFile = new File(dir.getAbsolutePath() + "/" + inputFilename);
+    ensureFilePath(inputFile);
+    if (args.getVerboseLevel() > 1) {
+      logger.info("Saving memory-mapped input matrix model to " + inputFile.getCanonicalPath());
+    }
+    try (FileOutputStream os = new FileOutputStream(inputFile)) {
+      if (quant) {
+        qinput.saveToMMap(os);
+      } else {
+        input.saveToMMap(os);
+      }
+    }
+    long end = System.nanoTime();
+    double took = (end - start) / 1000000000d;
+    logger.info(String.format(Locale.ENGLISH, "FastText model successfully converted to mmapped (took %.3fs).", took));
+  }
 
-    logger.info("FastText model loaded (took " + took + "s).");
+
+  public static void main(String[] args) throws Exception {
+
+    Options options = new Options();
+
+    Option input = new Option("i", "input", true, "input model path");
+    input.setRequired(true);
+    options.addOption(input);
+
+    Option output = new Option("o", "output", true, "output model path");
+    output.setRequired(true);
+    options.addOption(output);
+
+    CommandLineParser parser = new DefaultParser();
+    HelpFormatter formatter = new HelpFormatter();
+    CommandLine cmd;
+
+    try {
+      cmd = parser.parse(options, args);
+    } catch (ParseException e) {
+      System.out.println(e.getMessage());
+      formatter.printHelp("fasttext.FastText", options);
+
+      System.exit(1);
+      return;
+    }
+
+    String inputModelPath = cmd.getOptionValue("input");
+    String baseOutputPath = cmd.getOptionValue("output");
+
+    logger.info("Loading fastText model to convert...");
+    FastText model = FastText.loadModel(inputModelPath);
+
+    logger.info("Saving fastText model to memory-mapped model...");
+    model.saveAsMemoryMappedModel(baseOutputPath);
+
   }
 
 }

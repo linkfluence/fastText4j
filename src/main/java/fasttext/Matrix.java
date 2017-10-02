@@ -1,22 +1,25 @@
 package fasttext;
 
 import com.google.common.base.Preconditions;
-import fasttext.util.Utils;
+import fasttext.store.InputStreamFastTextInput;
+import fasttext.store.OutputStreamFastTextOutput;
+import fasttext.store.OutputStreamResourceOutput;
+import fasttext.util.Randoms;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
+import java.io.*;
 import java.util.Random;
 
-import static fasttext.util.io.IOUtils.*;
+public class Matrix implements ReadableMatrix {
 
-public class Matrix {
+  private final float[] data;
+  private final int m;
+  private final int n;
 
-  float[] data;
-  int m = 0;
-  int n = 0;
-
-  public Matrix() {}
+  private Matrix(int m, int n, float[] data) {
+    this.m = m;
+    this.n = n;
+    this.data = data;
+  }
 
   public Matrix(int m, int n) {
     this.m = m;
@@ -42,8 +45,16 @@ public class Matrix {
   public void uniform(float a) {
     Random rng = new Random(1L);
     for (int i = 0; i < (m * n); i++) {
-      data[i] = Utils.randomFloat(rng, -a, a);
+      data[i] = Randoms.randomFloat(rng, -a, a);
     }
+  }
+
+  public float[] atRow(int i) {
+    float[] r = new float[n];
+    for (int j = 0; j < n; j++) {
+      r[j] = data[i * n];
+    }
+    return r;
   }
 
   public float at(int i, int j) {
@@ -131,20 +142,6 @@ public class Matrix {
     return this.n;
   }
 
-  void save(OutputStream os) throws IOException {
-    throw new UnsupportedOperationException("Not implemented yet");
-  }
-
-  void load(InputStream is) throws IOException {
-    m = (int) readLong(is);
-    n = (int) readLong(is);
-    data = new float[m * n];
-    for (int i = 0; i < m * n; i++) {
-      float d = readFloat(is);
-      data[i] = d;
-    }
-  }
-
   @Override
   public String toString() {
     StringBuilder builder = new StringBuilder();
@@ -171,6 +168,42 @@ public class Matrix {
 
   public float[] toArray() {
     return this.data;
+  }
+
+  public static Matrix load(InputStreamFastTextInput is) throws IOException {
+    int m = (int) is.readLong();
+    int n = (int) is.readLong();
+    float[] data = new float[m * n];
+    for (int i = 0; i < m * n; i++) {
+      float d = is.readFloat();
+      data[i] = d;
+    }
+    return new Matrix(m, n, data);
+  }
+
+  public void save(OutputStreamFastTextOutput os) throws IOException {
+    os.writeLong(m);
+    os.writeLong(n);
+    for (int i = 0; i < m * n; i++) {
+      os.writeFloat(data[i]);
+    }
+  }
+
+  public void saveToMMap(OutputStream os) throws IOException {
+    int bufferSize = 16 + 4 * m * n;
+    try (OutputStreamResourceOutput fos = new OutputStreamResourceOutput("matrix", os, bufferSize)) {
+      fos.writeLong(m);
+      fos.writeLong(n);
+      for (int i = 0; i < m * n; i++) {
+        fos.writeFloat(data[i]);
+      }
+    }
+  }
+
+  public void close() {}
+
+  public Matrix clone() throws CloneNotSupportedException {
+    return (Matrix) super.clone();
   }
 
 }

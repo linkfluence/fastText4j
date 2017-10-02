@@ -25,23 +25,22 @@ public class Model {
     boolean binary;
   }
 
-  private Matrix wi;
-  private Matrix wo;
+  private final ReadableMatrix wi;
+  private final Matrix wo;
 
-  private QMatrix qwi;
-  private QMatrix qwo;
+  private final ReadableQMatrix qwi;
+  private final QMatrix qwo;
 
-  private Args args;
+  private final Args args;
 
-  private Vector hidden;
-  private Vector output;
-  private Vector grad;
-  private boolean quant;
-  private int hsz;
-  private int isz;
-  private int osz;
-  private float loss;
-  private int nexamples;
+  private final Vector hidden;
+  private final Vector output;
+  private final Vector grad;
+  private final boolean quant;
+  private final int hsz;
+  private final int osz;
+  private final float loss;
+  private final int nexamples;
   private float[] tSigmoid;
   private float[] tLog;
 
@@ -55,35 +54,39 @@ public class Model {
 
   private transient Random rng;
 
-  public Model(Matrix wi, Matrix wo, Args args, int seed) {
+  public Model(Args args,
+               int seed,
+               ReadableMatrix wi,
+               Matrix wo,
+               boolean quant,
+               boolean qout,
+               ReadableQMatrix qwi,
+               QMatrix qwo) {
     this.hidden = new Vector(args.getDimension());
-    this.output = new Vector(wo.m);
+    this.output = new Vector(wo.m());
     this.grad = new Vector(args.getDimension());
     this.rng = new Random(seed);
-    this.quant = false;
     this.wi = wi;
     this.wo = wo;
     this.args = args;
-    this.osz = wo.m;
     this.hsz = args.getDimension();
     this.negpos = 0;
     this.loss = 0.0f;
     this.nexamples = 1;
+    this.quant = quant;
+    this.qwi = qwi;
+    this.qwo = qwo;
+    if (qout) {
+      this.osz = qwo.m();
+    } else {
+      this.osz = wo.m();
+    }
     initSigmoid();
     initLog();
   }
 
   public Random rng() {
     return this.rng;
-  }
-
-  public void setQuantization(QMatrix qwi, QMatrix qwo, boolean quant, boolean qout) {
-    this.quant = quant;
-    this.qwi = qwi;
-    this.qwo = qwo;
-    if (qout) {
-      osz = qwo.m();
-    }
   }
 
   public float binaryLogistic(int target, boolean label, float lr) {
@@ -334,7 +337,7 @@ public class Model {
     for (int i = 0; i < SIGMOID_TABLE_SIZE + 1; i++) {
       float x = (i * 2 * MAX_SIGMOID) / (float) SIGMOID_TABLE_SIZE - MAX_SIGMOID;
       tSigmoid[i] = (float) (1.0 / (1.0 + Math.exp(-x)));
-  }
+    }
   }
 
   private void initLog() {

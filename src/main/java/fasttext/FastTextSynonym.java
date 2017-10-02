@@ -2,8 +2,8 @@ package fasttext;
 
 public class FastTextSynonym {
 
-  private String word;
-  private double cosineSimilarity;
+  private final String word;
+  private final double cosineSimilarity;
 
   public FastTextSynonym(String word, double cosineSimilarity) {
     this.word = word;
@@ -17,6 +17,5 @@ public class FastTextSynonym {
   public double cosineSimilarity() {
     return this.cosineSimilarity;
   }
-
 
 }

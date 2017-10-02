@@ -4,8 +4,8 @@ import com.google.common.base.Preconditions;
 
 public class Vector {
 
-  int m;
-  float[] data;
+  final int m;
+  final float[] data;
 
   public Vector(int size) {
     this.m = size;
@@ -50,38 +50,38 @@ public class Vector {
     }
   }
 
-  public void addRow(Matrix A, int i, float a) {
-    Preconditions.checkPositionIndex(i, A.m);
-    Preconditions.checkArgument(m == A.n);
-    for (int j = 0; j < A.n; j++) {
+  public void addRow(ReadableMatrix A, int i, float a) {
+    Preconditions.checkPositionIndex(i, A.m());
+    Preconditions.checkArgument(m == A.n());
+    for (int j = 0; j < A.n(); j++) {
       data[j] += a * A.at(i, j);
     }
   }
 
-  public void addRow(Matrix A, int i) {
-    Preconditions.checkPositionIndex(i, A.m);
-    Preconditions.checkArgument(m == A.n);
-    for (int j = 0; j < A.n; j++) {
+  public void addRow(ReadableMatrix A, int i) {
+    Preconditions.checkPositionIndex(i, A.m());
+    Preconditions.checkArgument(m == A.n());
+    for (int j = 0; j < A.n(); j++) {
       data[j] += A.at(i, j);
     }
   }
 
-  public void addRow(QMatrix A, int i) {
+  public void addRow(ReadableQMatrix A, int i) {
     Preconditions.checkArgument(i >= 0);
     A.addToVector(this, i);
   }
 
-  public void mul(Matrix A, Vector vec) {
-    Preconditions.checkArgument(m == A.m);
-    Preconditions.checkArgument(A.n == vec.size());
+  public void mul(ReadableMatrix A, Vector vec) {
+    Preconditions.checkArgument(m == A.m());
+    Preconditions.checkArgument(A.n() == vec.size());
     for (int i = 0; i < m; i++) {
       data[i] = A.dotRow(vec, i);
     }
   }
 
-  public void mul(QMatrix A, Vector vec) {
-    Preconditions.checkArgument(m == A.m);
-    Preconditions.checkArgument(A.n == vec.size());
+  public void mul(ReadableQMatrix A, Vector vec) {
+    Preconditions.checkArgument(m == A.m());
+    Preconditions.checkArgument(A.n() == vec.size());
     for (int i = 0; i < m; i++) {
       data[i] = A.dotRow(vec, i);
     }
@@ -97,6 +97,11 @@ public class Vector {
       }
     }
     return argmax;
+  }
+
+  public void addAt(int i, float v) {
+    Preconditions.checkPositionIndex(i, m);
+    data[i] += v;
   }
 
   public void set(int i, float v) {

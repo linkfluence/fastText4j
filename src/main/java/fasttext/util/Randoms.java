@@ -2,7 +2,7 @@ package fasttext.util;
 
 import java.util.Random;
 
-public class Utils {
+public class Randoms {
 
   public static float randomFloat(Random rnd, float lower, float upper) {
     assert(lower <= upper);

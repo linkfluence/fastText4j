@@ -2,8 +2,8 @@ package fasttext;
 
 public class FastTextPrediction {
 
-  private String label;
-  private double logProbability;
+  private final String label;
+  private final double logProbability;
 
   public FastTextPrediction(String label, double logProbability) {
     this.label = label;

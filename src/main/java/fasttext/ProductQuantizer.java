@@ -1,12 +1,10 @@
 package fasttext;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.util.Random;
+import fasttext.store.InputStreamFastTextInput;
+import fasttext.store.OutputStreamFastTextOutput;
 
-import static fasttext.util.io.IOUtils.readFloat;
-import static fasttext.util.io.IOUtils.readInt;
+import java.io.IOException;
+import java.util.Random;
 
 public class ProductQuantizer {
 
@@ -18,13 +16,17 @@ public class ProductQuantizer {
   private static final int NUM_ITER = 25;
   private static final double EPS = 1e-7;
 
-  private int dim;
-  private int nsubq;
-  private int dsub;
-  private int lastdsub;
+  private final int dim;
+  private final int nsubq;
+  private final int dsub;
+  private final int lastdsub;
 
-  private float[] centroids;
-  private Random rng;
+  private final float[] centroids;
+  private final Random rng = new Random(SEED);
+
+  public static int findCentroidsSize(int dimension) {
+    return dimension * KSUB;
+  }
 
   public float distL2(float[] x, float[] y, int d) {
     return distL2(x, y, d, 0, 0);
@@ -39,22 +41,50 @@ public class ProductQuantizer {
     return dist;
   }
 
-  public ProductQuantizer() {}
-
   public ProductQuantizer(int dim, int dsub) {
     this.dim = dim;
-    this.nsubq = dim / dsub;
     this.dsub = dsub;
     this.centroids = new float[dim * KSUB];
-    this.rng = new Random(SEED);
-    this.lastdsub = dim % dsub;
-    if (this.lastdsub == 0)
+    int nsubq = dim / dsub;
+    int lastdsub = dim % dsub;
+    if (lastdsub == 0) {
       this.lastdsub = dsub;
-    else
-      this.nsubq++;
+      this.nsubq = nsubq;
+    } else {
+      this.lastdsub = lastdsub;
+      this.nsubq = nsubq + 1;
+    }
   }
 
-  public float getCentroids(int position) {
+  public ProductQuantizer(int dim, int nsubq, int dsub, int lastdsub, float[] centroids) {
+    this.dim = dim;
+    this.nsubq = nsubq;
+    this.dsub = dsub;
+    this.lastdsub = lastdsub;
+    this.centroids = centroids;
+  }
+
+  public int dim() {
+    return this.dim;
+  }
+
+  public int dsub() {
+    return this.dsub;
+  }
+
+  public int nsubq() {
+    return this.nsubq;
+  }
+
+  public int lastdsub() {
+    return this.lastdsub;
+  }
+
+  public float[] centroids() {
+    return this.centroids;
+  }
+
+  public float getCentroid(int position) {
     return centroids[position];
   }
 
@@ -66,15 +96,15 @@ public class ProductQuantizer {
     }
   }
 
-  private float assignCentroid(float[] x, int xStartPosition, int c0Position, int[] code, int codeStartPosition, int d) {
+  private float assignCentroid(float[] x, int xStartPosition, int c0Position, QCodes codes, int codeStartPosition, int d) {
     throw new UnsupportedOperationException("Not implemented yet");
   }
 
-  private void eStep(float[] x, int cPosition, int[] codes, int d, int n) {
+  private void eStep(float[] x, int cPosition, QCodes codes, int d, int n) {
     throw new UnsupportedOperationException("Not implemented yet");
   }
 
-  private void mStep(float[] x0, int cPosition, int[] codes, int d, int n) {
+  private void mStep(float[] x0, int cPosition, QCodes codes, int d, int n) {
     throw new UnsupportedOperationException("Not implemented yet");
   }
 
@@ -86,20 +116,20 @@ public class ProductQuantizer {
     throw new UnsupportedOperationException("Not implemented yet");
   }
 
-  public void computeCode(float[] x, int[] codes, int xBeginPosition, int codeBeginPosition) {
+  public void computeCode(float[] x, QCodes codes, int xBeginPosition, int codeBeginPosition) {
     throw new UnsupportedOperationException("Not implemented yet");
   }
 
-  public void computeCodes(float[] x, int[] codes, int m) {
+  public void computeCodes(float[] x, QCodes codes, int m) {
     throw new UnsupportedOperationException("Not implemented yet");
   }
 
-  public float mulCode(Vector x, int[] codes, int t, float alpha) {
+  public float mulCode(Vector x, QCodes codes, int t, float alpha) {
     float res = 0.0f;
     int d = dsub;
     int codePos = nsubq + t;
     for (int m = 0; m < nsubq; m++) {
-      int c = getCentroidsPosition(m, codes[m + codePos]);
+      int c = getCentroidsPosition(m, codes.get(m + codePos));
       if (m == nsubq - 1) {
         d = lastdsub;
       }
@@ -110,11 +140,11 @@ public class ProductQuantizer {
     return res * alpha;
   }
 
-  public void addCode(Vector x, int[] codes, int t, float alpha) {
+  public void addCode(Vector x, QCodes codes, int t, float alpha) {
     int d = dsub;
     int codePos = nsubq * t;
     for (int m = 0; m < nsubq; m++) {
-      int c = getCentroidsPosition(m, codes[m + codePos]);
+      int c = getCentroidsPosition(m, codes.get(m + codePos));
       if (m == nsubq - 1) {
         d = lastdsub;
       }
@@ -124,20 +154,26 @@ public class ProductQuantizer {
     }
   }
 
-  public void save(OutputStream os) throws IOException {
-    throw new UnsupportedOperationException("Not implemented yet");
+  public void save(OutputStreamFastTextOutput os) throws IOException {
+    os.writeInt(dim);
+    os.writeInt(nsubq);
+    os.writeInt(dsub);
+    os.writeInt(lastdsub);
+    for (int i = 0; i < centroids.length; i++) {
+      os.writeFloat(centroids[i]);
+    }
   }
 
-  public void load(InputStream is) throws IOException {
-    dim = readInt(is);
-    nsubq = readInt(is);
-    dsub = readInt(is);
-    lastdsub = readInt(is);
-    centroids = new float[dim * KSUB];
+  public static ProductQuantizer load(InputStreamFastTextInput is) throws IOException {
+    int dim = is.readInt();
+    int nsubq = is.readInt();
+    int dsub = is.readInt();
+    int lastdsub = is.readInt();
+    float[] centroids = new float[dim * KSUB];
     for (int i = 0; i < centroids.length; i++) {
-      float c = readFloat(is);
-      centroids[i] = c;
+      centroids[i] = is.readFloat();
     }
+    return new ProductQuantizer(dim, nsubq, dsub, lastdsub, centroids);
   }
 
 }
