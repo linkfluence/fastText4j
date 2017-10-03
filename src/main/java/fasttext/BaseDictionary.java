@@ -171,20 +171,20 @@ public abstract class BaseDictionary implements Cloneable, Closeable {
 
   public abstract EntryType getType(int id);
 
-  public abstract List<Integer> getNGrams(int id);
+  public abstract List<Integer> getSubwords(int id);
 
-  public List<Integer> getNGrams(String word) {
+  public List<Integer> getSubwords(String word) {
     int id = getId(word);
     if (id != WORD_ID_DEFAULT) {
-      return getNGrams(id);
+      return getSubwords(id);
     } else {
       List<Integer> ngrams = new ArrayList<>();
-      computeNGrams(BOW + word + EOW, ngrams);
+      computeSubwords(BOW + word + EOW, ngrams);
       return ngrams;
     }
   }
 
-  public List<Integer> getNGrams(String word, List<Integer> ngrams, List<String> substrings) {
+  public List<Integer> getSubwords(String word, List<Integer> ngrams, List<String> substrings) {
     int id = getId(word);
     ngrams.clear();
     substrings.clear();
@@ -195,7 +195,7 @@ public abstract class BaseDictionary implements Cloneable, Closeable {
       ngrams.add(id);
       substrings.add(word);
     }
-    computeNGrams(BOW + word + EOW, ngrams, substrings);
+    computeSubwords(BOW + word + EOW, ngrams, substrings);
     return ngrams;
   }
 
@@ -205,6 +205,10 @@ public abstract class BaseDictionary implements Cloneable, Closeable {
 
   public int getId(String w) {
     return hashToId(find(w));
+  }
+
+  protected int getId(String w, long h) {
+    return hashToId(find(w, h));
   }
 
   public int size() {
@@ -223,7 +227,7 @@ public abstract class BaseDictionary implements Cloneable, Closeable {
     return nWords;
   }
 
-  protected void initNGrams() {
+  protected void initSubwords() {
     for (int i = 0; i < size; i++) {
       Entry e = getEntry(i);
       String word = BOW + e.word + EOW;
@@ -231,7 +235,7 @@ public abstract class BaseDictionary implements Cloneable, Closeable {
         e.subwords = new ArrayList<>();
       }
       e.subwords.add(i);
-      computeNGrams(word, e.subwords);
+      computeSubwords(word, e.subwords);
     }
   }
 
@@ -248,12 +252,16 @@ public abstract class BaseDictionary implements Cloneable, Closeable {
     return !(id == WORD_ID_DEFAULT) && !(getEntry(id).word.equals(w));
   }
 
-  protected long find(String w) {
-    long h = hash(w) % MAX_VOCAB_SIZE;
+  protected long find(String w, long hw) {
+    long h = hw % MAX_VOCAB_SIZE;
     while (idNotFound(w, h)) {
       h = (h + 1) % MAX_VOCAB_SIZE;
     }
     return h;
+  }
+
+  protected long find(String w) {
+    return find(w, hash(w));
   }
 
   /**
@@ -287,7 +295,7 @@ public abstract class BaseDictionary implements Cloneable, Closeable {
     return (c & 0xC0) == 0x80;
   }
 
-  protected void computeNGrams(String word, List<Integer> ngrams, List<String> substrings) {
+  protected void computeSubwords(String word, List<Integer> ngrams, List<String> substrings) {
     for(int i = 0; i < word.length(); i++) {
       StringBuilder ngram = new StringBuilder();
       if (!charMatches(word.charAt(i))) {
@@ -307,7 +315,7 @@ public abstract class BaseDictionary implements Cloneable, Closeable {
     }
   }
 
-  protected void computeNGrams(String word, List<Integer> ngrams) {
+  protected void computeSubwords(String word, List<Integer> ngrams) {
     for(int i = 0; i < word.length(); i++) {
       StringBuilder ngram = new StringBuilder();
       if (!charMatches(word.charAt(i))) {
@@ -336,7 +344,7 @@ public abstract class BaseDictionary implements Cloneable, Closeable {
     }
   }
 
-  protected void addNGrams(List<Integer> line, List<Long> hashes, int n) {
+  protected void addWordNGrams(List<Integer> line, List<Long> hashes, int n) {
     if (pruneIdxSize == 0) {
       return;
     }
@@ -415,17 +423,22 @@ public abstract class BaseDictionary implements Cloneable, Closeable {
     return counts;
   }
 
-  protected int getDictLine(List<String> tokens, List<Integer> lineWords, List<Long> wordHashes, List<Integer> labels, Random rng) {
+  protected int getDictLine(List<String> tokens,
+                            List<Integer> lineWords,
+                            List<Long> wordHashes,
+                            List<Integer> labels,
+                            Random rng) {
     lineWords.clear();
     labels.clear();
     wordHashes.clear();
     int nTokens = 0;
     for (int i = 0; i < tokens.size(); i++) {
       String token = tokens.get(i);
-      int wid = getId(token);
+      long h = hash(token);
+      int wid = getId(token, h);
       if (wid < 0) {
         if (getType(token) == EntryType.WORD) {
-          wordHashes.add(hash(token));
+          wordHashes.add(h);
         }
         continue;
       }
@@ -433,7 +446,7 @@ public abstract class BaseDictionary implements Cloneable, Closeable {
       nTokens++;
       if (type == EntryType.WORD && !discard(wid, Randoms.randomFloat(rng, 0, 1))) {
         lineWords.add(wid);
-        wordHashes.add(hash(token));
+        wordHashes.add(h);
       }
       if (type == EntryType.LABEL) {
         labels.add(wid - nWords);
@@ -448,28 +461,45 @@ public abstract class BaseDictionary implements Cloneable, Closeable {
     return nTokens;
   }
 
-  protected int getDictLine(List<String> tokens, List<Integer> words, List<Integer> labels, Random rng) {
+  protected int getDictLine(List<String> tokens,
+                            List<Integer> words,
+                            List<Integer> labels,
+                            Random rng) {
     List<Long> wordHashes = new ArrayList<>();
     int nTokens = getDictLine(tokens, words, wordHashes, labels, rng);
     if (args.getModel() == Args.ModelName.SUP) {
-      addNGrams(words, wordHashes, args.getWordNGrams());
+      addWordNGrams(words, wordHashes, args.getWordNGrams());
     }
     return nTokens;
   }
 
-  public int getLine(List<String> tokens, List<Integer> words, List<Integer> labels, Random rng) {
+  public int getLine(List<String> tokens,
+                     List<Integer> words,
+                     List<Integer> labels,
+                     Random rng) {
     return getDictLine(readLineTokens(tokens), words, labels, rng);
   }
 
-  public int getLine(List<String> tokens, List<Integer> words, List<Long> wordHashes, List<Integer> labels, Random rng) {
+  public int getLine(List<String> tokens,
+                     List<Integer> words,
+                     List<Long> wordHashes,
+                     List<Integer> labels,
+                     Random rng) {
     return getDictLine(readLineTokens(tokens), words, wordHashes, labels, rng);
   }
 
-  public int getLine(String line, List<Integer> words, List<Long> wordHashes, List<Integer> labels, Random rng) {
+  public int getLine(String line,
+                     List<Integer> words,
+                     List<Long> wordHashes,
+                     List<Integer> labels,
+                     Random rng) {
     return getDictLine(readLineTokens(line), words, wordHashes, labels, rng);
   }
 
-  public int getLine(String line, List<Integer> words, List<Integer> labels, Random rng) {
+  public int getLine(String line,
+                     List<Integer> words,
+                     List<Integer> labels,
+                     Random rng) {
     return getDictLine(readLineTokens(line), words, labels, rng);
   }
 

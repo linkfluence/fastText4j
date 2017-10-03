@@ -216,7 +216,7 @@ public class MMapDictionary extends BaseDictionary {
   }
 
   @Override
-  public List<Integer> getNGrams(int id) {
+  public List<Integer> getSubwords(int id) {
     Preconditions.checkPositionIndex(id, size);
     position(entryFieldPosition(id, subwordsOffset()));
     return Ints.asList(readSubwords());

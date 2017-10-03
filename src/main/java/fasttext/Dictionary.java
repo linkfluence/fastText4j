@@ -32,7 +32,7 @@ public class Dictionary extends BaseDictionary {
     this.pruneIdx = pruneIdx;
     initWord2int();
     initTableDiscard();
-    initNGrams();
+    initSubwords();
   }
 
   @Override
@@ -79,7 +79,7 @@ public class Dictionary extends BaseDictionary {
   }
 
   @Override
-  public List<Integer> getNGrams(int id) {
+  public List<Integer> getSubwords(int id) {
     Preconditions.checkPositionIndex(id, nWords);
     return words[id].subwords;
   }

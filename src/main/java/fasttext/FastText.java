@@ -231,7 +231,7 @@ public class FastText {
    */
   public Vector getWordVector(String word) {
     Vector vec = new Vector(args.getDimension());
-    List<Integer> ngrams = dict.getNGrams(word);
+    List<Integer> ngrams = dict.getSubwords(word);
     vec.zero();
     for (int it : ngrams) {
       if (quant) {
@@ -270,10 +270,15 @@ public class FastText {
     svec.zero();
     for (String word : sentence) {
       getWordVector(word);
-      vec.mul(1.0f / vec.norm());
-      svec.addVector(vec);
+      float norm = vec.norm();
+      if (norm > 0) {
+        vec.mul(1.0f / norm);
+        svec.addVector(vec);
+      }
     }
-    svec.mul(1.0f / (float) sentence.size());
+    if (sentence.size() > 0) {
+      svec.mul(1.0f / (float) sentence.size());
+    }
     return svec;
   }
 
@@ -298,7 +303,7 @@ public class FastText {
   public List<Vector> ngramVectors(String word) {
     List<Vector> vecs = new ArrayList<>();
     Vector vec = new Vector(args.getDimension());
-    List<Integer> ngrams = dict.getNGrams(word);
+    List<Integer> ngrams = dict.getSubwords(word);
     for (int i = 0; i < ngrams.size(); i++) {
       vec.zero();
       if (ngrams.get(i) >= 0) {
@@ -359,7 +364,9 @@ public class FastText {
         String word = dict.getWord(i);
         Vector vec = getWordVector(word);
         float norm = vec.norm();
-        wordVectors.addRow(vec, i, 1.0f / norm);
+        if (norm > 0) {
+          wordVectors.addRow(vec, i, 1.0f / norm);
+        }
       }
       logger.info("Done. Word vectors precomputed.");
     } else {
