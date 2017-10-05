@@ -1,5 +1,6 @@
 package fasttext;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.MinMaxPriorityQueue;
 import com.google.common.primitives.Booleans;
 import com.google.common.primitives.Ints;
@@ -163,7 +164,7 @@ public class Model {
   }
 
   public void computeHidden(int[] input, Vector hidden) {
-    assert(hidden.size() == hsz);
+    Preconditions.checkArgument(hidden.size() == hsz);
     hidden.zero();
     for(int it : input) {
       if (quant) {
@@ -189,17 +190,11 @@ public class Model {
   }
 
   public void predict(int[] input, int k, MinMaxPriorityQueue<Pair<Float, Integer>> heap) {
-    assert(k > 0);
-    computeHidden(input, hidden);
-    if (args.getLoss().equals(Args.LossName.HS)) {
-      dfs(k, 2 * osz - 2, 0.0f, heap, hidden);
-    } else {
-      findKBest(k, heap, hidden, output);
-    }
+    predict(input, k, heap, hidden, output);
   }
 
   public void predict(int[] input, int k, MinMaxPriorityQueue<Pair<Float, Integer>> heap, Vector hidden, Vector output) {
-    assert(k > 0);
+    Preconditions.checkArgument(k > 0);
     computeHidden(input, hidden);
     if (args.getLoss().equals(Args.LossName.HS)) {
       dfs(k, 2 * osz - 2, 0.0f, heap, hidden);
@@ -222,13 +217,13 @@ public class Model {
   }
 
   public void dfs(int k, int node, float score, MinMaxPriorityQueue<Pair<Float, Integer>> heap, Vector hidden) {
-    if (heap.size() == k && score < heap.peekFirst().first()) {
+    if (heap.size() == k && score < heap.peekLast().first()) {
       return;
     }
     if (tree[node].left == -1 && tree[node].right == -1) {
       heap.add(new Pair<>(score, node));
-      while (heap.size() > k) {
-        heap.pollLast();
+      if (heap.size() > k) {
+        Pair<Float, Integer> p = heap.pollLast();
       }
       return;
     }
@@ -247,7 +242,7 @@ public class Model {
   }
 
   public void setTargetCounts(long[] counts) {
-    assert(counts.length == osz);
+    Preconditions.checkArgument(counts.length == osz);
     if (args.getLoss() == Args.LossName.NS) {
       initTableNegative(counts);
     } else if (args.getLoss() == Args.LossName.HS) {
