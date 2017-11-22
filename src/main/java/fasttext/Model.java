@@ -133,7 +133,7 @@ public class Model {
     } else {
       output.mul(wo, hidden);
     }
-    double max = output.at(0), z = 0.0f;
+    float max = output.at(0), z = 0.0f;
     for (int i = 0; i < osz; i++) {
       max = Math.max(output.at(i), max);
     }
@@ -189,34 +189,50 @@ public class Model {
     }
   }
 
-  public void predict(int[] input, int k, MinMaxPriorityQueue<Pair<Float, Integer>> heap) {
-    predict(input, k, heap, hidden, output);
+  public void predict(int[] input, int k, float threshold, MinMaxPriorityQueue<Pair<Float, Integer>> heap) {
+    predict(input, k, threshold, heap, hidden, output);
   }
 
-  public void predict(int[] input, int k, MinMaxPriorityQueue<Pair<Float, Integer>> heap, Vector hidden, Vector output) {
+  public void predict(int[] input,
+                      int k,
+                      float threshold,
+                      MinMaxPriorityQueue<Pair<Float, Integer>> heap,
+                      Vector hidden,
+                      Vector output) {
     Preconditions.checkArgument(k > 0);
     computeHidden(input, hidden);
     if (args.getLoss().equals(Args.LossName.HS)) {
-      dfs(k, 2 * osz - 2, 0.0f, heap, hidden);
+      dfs(k, threshold, 2 * osz - 2, 0.0f, heap, hidden);
     } else {
-      findKBest(k, heap, hidden, output);
+      findKBest(k, threshold, heap, hidden, output);
     }
   }
 
-  public void findKBest(int k, MinMaxPriorityQueue<Pair<Float, Integer>> heap, Vector hidden, Vector output) {
+  public void findKBest(int k,
+                        float threshold,
+                        MinMaxPriorityQueue<Pair<Float, Integer>> heap,
+                        Vector hidden,
+                        Vector output) {
     computeOutputSoftmax(hidden, output);
     for (int i = 0; i < osz; i++) {
-      if (heap.size() == k && log(output.data[i]) < heap.peekFirst().first()) {
+      if (output.data[i] < threshold) continue;
+      if (heap.size() == k && stdLog(output.data[i]) < heap.peekFirst().first()) {
         continue;
       }
-      heap.add(new Pair<>(log(output.data[i]), i));
+      heap.add(new Pair<>(stdLog(output.data[i]), i));
     }
     while (heap.size() > k) {
       heap.pollLast();
     }
   }
 
-  public void dfs(int k, int node, float score, MinMaxPriorityQueue<Pair<Float, Integer>> heap, Vector hidden) {
+  public void dfs(int k,
+                  float threshold,
+                  int node,
+                  float score,
+                  MinMaxPriorityQueue<Pair<Float, Integer>> heap,
+                  Vector hidden) {
+    if (score < stdLog(threshold)) return;
     if (heap.size() == k && score < heap.peekLast().first()) {
       return;
     }
@@ -229,12 +245,13 @@ public class Model {
     }
     float f;
     if (quant && args.getQOut()) {
-      f = sigmoid(qwo.dotRow(hidden, node - osz));
+      f = qwo.dotRow(hidden, node - osz);
     } else {
-      f = sigmoid(wo.dotRow(hidden, node - osz));
+      f = wo.dotRow(hidden, node - osz);
     }
-    dfs(k, tree[node].left, score + log(1.0f - f), heap, hidden);
-    dfs(k, tree[node].right, score + log(f), heap, hidden);
+    f = 1f / (1f + (float) Math.exp(-f));
+    dfs(k, threshold, tree[node].left, score + stdLog(1.0f - f), heap, hidden);
+    dfs(k, threshold, tree[node].right, score + stdLog(f), heap, hidden);
   }
 
   public void update(int[] input, int target, float lr) {
@@ -350,6 +367,10 @@ public class Model {
       int i = (int) (x * LOG_TABLE_SIZE);
       return tLog[i];
     }
+  }
+
+  public float stdLog(float x) {
+    return (float) Math.log(x + 1e-5);
   }
 
   public float sigmoid(float x) {

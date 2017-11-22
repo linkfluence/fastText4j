@@ -24,11 +24,10 @@ public class Dictionary extends BaseDictionary {
                      long nTokens,
                      int pruneIdxSize,
                      Entry[] words,
-                     Map<Long, Integer> word2int,
                      Map<Integer, Integer> pruneIdx) {
     super(args, size, nWords, nLabels, nTokens, pruneIdxSize);
     this.words = words;
-    this.word2int = word2int;
+    this.word2int = new HashMap<>(word2intSize);
     this.pruneIdx = pruneIdx;
     initWord2int();
     initTableDiscard();
@@ -98,7 +97,6 @@ public class Dictionary extends BaseDictionary {
     long nTokens = is.readLong();
     int pruneIdxSize = (int) is.readLong();
     Entry[] words = new Entry[size];
-    Map<Long, Integer> word2int = new HashMap<>(size);
 
     for (int i = 0; i < size; i++) {
       Entry e = new Entry();
@@ -116,8 +114,7 @@ public class Dictionary extends BaseDictionary {
         pruneIdx.put(first, second);
       }
     }
-    return new Dictionary(args, size, nWords, nLabels, nTokens,
-      pruneIdxSize, words, word2int, pruneIdx);
+    return new Dictionary(args, size, nWords, nLabels, nTokens, pruneIdxSize, words, pruneIdx);
   }
 
   public void save(OutputStreamFastTextOutput os) throws IOException {
@@ -165,7 +162,6 @@ public class Dictionary extends BaseDictionary {
     }
     int wordByteArrayLength = maxStringLength;
     int subwordsByteArrayLength = Integer.BYTES * maxSubwordsSize;
-
 
     int entryByteArraySize = (
       wordByteArrayLength +     // word

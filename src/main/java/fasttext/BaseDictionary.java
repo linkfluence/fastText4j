@@ -58,10 +58,12 @@ public abstract class BaseDictionary implements Cloneable, Closeable {
       sb.append(", type=");
       sb.append(type);
       sb.append(", subwords=(");
-      for (int i = 0; i < subwords.size(); i++) {
-        sb.append(i);
-        if (i != subwords.size() - 1) {
-          sb.append(", ");
+      if (subwords != null) {
+        for (int i = 0; i < subwords.size(); i++) {
+          sb.append(i);
+          if (i != subwords.size() - 1) {
+            sb.append(", ");
+          }
         }
       }
       sb.append(")");
@@ -139,6 +141,8 @@ public abstract class BaseDictionary implements Cloneable, Closeable {
   protected final int size;
   protected final int pruneIdxSize;
 
+  protected final int word2intSize;
+
   protected double[] pDiscard;
 
   protected BaseDictionary(Args args,
@@ -149,6 +153,11 @@ public abstract class BaseDictionary implements Cloneable, Closeable {
                            int pruneIdxSize) {
     this.args = args;
     this.size = size;
+    if (args.getUseMaxVocabularySize()) {
+      this.word2intSize = MAX_VOCAB_SIZE;
+    } else {
+      this.word2intSize = (int) Math.ceil(size / 0.7);
+    }
     this.nWords = nWords;
     this.nLabels = nLabels;
     this.nTokens = nTokens;
@@ -179,7 +188,9 @@ public abstract class BaseDictionary implements Cloneable, Closeable {
       return getSubwords(id);
     } else {
       List<Integer> ngrams = new ArrayList<>();
-      computeSubwords(BOW + word + EOW, ngrams);
+      if (!word.equals(EOS)) {
+        computeSubwords(BOW + word + EOW, ngrams);
+      }
       return ngrams;
     }
   }
@@ -195,7 +206,9 @@ public abstract class BaseDictionary implements Cloneable, Closeable {
       ngrams.add(id);
       substrings.add(word);
     }
-    computeSubwords(BOW + word + EOW, ngrams, substrings);
+    if (!word.equals(EOS)) {
+      computeSubwords(BOW + word + EOW, ngrams);
+    }
     return ngrams;
   }
 
@@ -209,6 +222,10 @@ public abstract class BaseDictionary implements Cloneable, Closeable {
 
   protected int getId(String w, long h) {
     return hashToId(find(w, h));
+  }
+
+  protected int getWord2intSize() {
+    return this.word2intSize;
   }
 
   public int size() {
@@ -227,15 +244,21 @@ public abstract class BaseDictionary implements Cloneable, Closeable {
     return nWords;
   }
 
+  public boolean isPruned() { return pruneIdxSize >= 0; }
+
   protected void initSubwords() {
     for (int i = 0; i < size; i++) {
       Entry e = getEntry(i);
       String word = BOW + e.word + EOW;
       if (e.subwords == null) {
         e.subwords = new ArrayList<>();
+      } else {
+        e.subwords.clear();
       }
       e.subwords.add(i);
-      computeSubwords(word, e.subwords);
+      if (!e.word.equals(EOS)) {
+        computeSubwords(word, e.subwords);
+      }
     }
   }
 
@@ -253,11 +276,11 @@ public abstract class BaseDictionary implements Cloneable, Closeable {
   }
 
   protected long find(String w, long hw) {
-    long h = hw % MAX_VOCAB_SIZE;
-    while (idNotFound(w, h)) {
-      h = (h + 1) % MAX_VOCAB_SIZE;
+    long id = hw % getWord2intSize();
+    while (idNotFound(w, id)) {
+      id = (id + 1) % getWord2intSize();
     }
-    return h;
+    return id;
   }
 
   protected long find(String w) {
@@ -315,6 +338,21 @@ public abstract class BaseDictionary implements Cloneable, Closeable {
     }
   }
 
+  protected void pushHash(List<Integer> hashes, int id) {
+    if (pruneIdxSize == 0 || id < 0) {
+      return;
+    }
+    if (pruneIdxSize > 0) {
+      int pruneId = getPruning(id);
+      if (pruneId >= 0) {
+        id = pruneId;
+      } else {
+        return;
+      }
+    }
+    hashes.add(nWords + id);
+  }
+
   protected void computeSubwords(String word, List<Integer> ngrams) {
     for(int i = 0; i < word.length(); i++) {
       StringBuilder ngram = new StringBuilder();
@@ -327,7 +365,7 @@ public abstract class BaseDictionary implements Cloneable, Closeable {
           if (n >= args.getMinn() && !(n == 1 && (i == 0 || j == word.length()))) {
             UnsignedLong h = UnsignedLong.valueOf(hash(ngram.toString()));
             h = h.mod(UnsignedLong.valueOf(args.getBucketNumber()));
-            ngrams.add(nWords + h.intValue());
+            pushHash(ngrams, h.intValue());
           }
         }
       }
@@ -368,6 +406,26 @@ public abstract class BaseDictionary implements Cloneable, Closeable {
           }
         }
         line.add(nWords + id);
+      }
+    }
+  }
+
+  protected void addSubwords(List<Integer> line,
+                             String token,
+                             int wid) {
+    if (wid < 0) {
+      // out of vocab
+      if (!token.equals(EOS)) {
+        computeSubwords(BOW + token + EOW, line);
+      }
+    } else {
+      if (args.getMaxn() <= 0) {
+        // in vocab w/o subwords
+        line.add(wid);
+      } else {
+        // in vocab w/ subwords
+        List<Integer> ngrams = getSubwords(wid);
+        line.addAll(ngrams);
       }
     }
   }
@@ -423,84 +481,79 @@ public abstract class BaseDictionary implements Cloneable, Closeable {
     return counts;
   }
 
+  protected int getDictLine(List<String> tokens, List<Integer> lineWords, Random rng) {
+    lineWords.clear();
+    int nTokens = 0;
+    for (int i = 0; i < tokens.size(); i++) {
+      String token = tokens.get(i);
+      int wid = getId(token);
+      if (wid < 0) {
+        continue;
+      }
+      nTokens++;
+      EntryType type = getType(wid);
+      if (type == EntryType.WORD && !discard(wid, Randoms.randomFloat(rng, 0, 1))) {
+        lineWords.add(wid);
+      }
+      if (nTokens > MAX_LINE_SIZE || token.equals(EOS)) {
+        break;
+      }
+    }
+    return nTokens;
+  }
+
   protected int getDictLine(List<String> tokens,
                             List<Integer> lineWords,
-                            List<Long> wordHashes,
-                            List<Integer> labels,
-                            Random rng) {
+                            List<Integer> labels) {
+    List<Long> wordHashes = new ArrayList<>();
     lineWords.clear();
     labels.clear();
-    wordHashes.clear();
     int nTokens = 0;
     for (int i = 0; i < tokens.size(); i++) {
       String token = tokens.get(i);
       long h = hash(token);
       int wid = getId(token, h);
+      EntryType type;
       if (wid < 0) {
-        if (getType(token) == EntryType.WORD) {
-          wordHashes.add(h);
-        }
-        continue;
+        type = getType(token);
+      } else {
+        type = getType(wid);
       }
-      EntryType type = getType(wid);
       nTokens++;
-      if (type == EntryType.WORD && !discard(wid, Randoms.randomFloat(rng, 0, 1))) {
-        lineWords.add(wid);
+      if (type == EntryType.WORD) {
+        addSubwords(lineWords, token, wid);
         wordHashes.add(h);
-      }
-      if (type == EntryType.LABEL) {
+      } else if (type == EntryType.LABEL && wid >= 0) {
         labels.add(wid - nWords);
       }
-      if (token.equals(EOS)) {
-        break;
-      }
-      if (nTokens > MAX_LINE_SIZE && args.getModel() != Args.ModelName.SUP) {
-        break;
-      }
     }
+    addWordNGrams(lineWords, wordHashes, args.getWordNGrams());
     return nTokens;
   }
 
-  protected int getDictLine(List<String> tokens,
-                            List<Integer> words,
-                            List<Integer> labels,
-                            Random rng) {
-    List<Long> wordHashes = new ArrayList<>();
-    int nTokens = getDictLine(tokens, words, wordHashes, labels, rng);
-    if (args.getModel() == Args.ModelName.SUP) {
-      addWordNGrams(words, wordHashes, args.getWordNGrams());
-    }
-    return nTokens;
+
+  public int getLine(List<String> tokens,
+                     List<Integer> words,
+                     Random rng) {
+    return getDictLine(readLineTokens(tokens), words, rng);
   }
 
   public int getLine(List<String> tokens,
                      List<Integer> words,
-                     List<Integer> labels,
-                     Random rng) {
-    return getDictLine(readLineTokens(tokens), words, labels, rng);
-  }
-
-  public int getLine(List<String> tokens,
-                     List<Integer> words,
-                     List<Long> wordHashes,
-                     List<Integer> labels,
-                     Random rng) {
-    return getDictLine(readLineTokens(tokens), words, wordHashes, labels, rng);
+                     List<Integer> labels) {
+    return getDictLine(readLineTokens(tokens), words, labels);
   }
 
   public int getLine(String line,
                      List<Integer> words,
-                     List<Long> wordHashes,
-                     List<Integer> labels,
                      Random rng) {
-    return getDictLine(readLineTokens(line), words, wordHashes, labels, rng);
+    return getDictLine(readLineTokens(line), words, rng);
   }
 
   public int getLine(String line,
                      List<Integer> words,
-                     List<Integer> labels,
-                     Random rng) {
-    return getDictLine(readLineTokens(line), words, labels, rng);
+                     List<Integer> labels) {
+    return getDictLine(readLineTokens(line), words, labels);
   }
 
   public abstract void saveToMMap(OutputStream os) throws IOException;

@@ -44,12 +44,13 @@ import java.util.*;
  */
 public class FastText {
 
-  public static int FASTTEXT_VERSION = 11;
+  public static int FASTTEXT_VERSION = 12; /* Version 1b */
   public static int FASTTEXT_FILEFORMAT_MAGIC_INT = 793712314;
 
   private final static Logger logger = Logger.getLogger(FastText.class.getName());
 
   private final Args args;
+  private final int version;
 
   private BaseDictionary dict;
   private Model model;
@@ -66,6 +67,7 @@ public class FastText {
   private Matrix wordVectors = null;
 
   private FastText(Args args,
+                   int version,
                    BaseDictionary dict,
                    ReadableMatrix input,
                    Matrix output,
@@ -74,6 +76,7 @@ public class FastText {
                    QMatrix qoutput,
                    boolean mmap) {
     this.args = args;
+    this.version = version;
     this.dict = dict;
     this.input = input;
     this.output = output;
@@ -106,28 +109,24 @@ public class FastText {
 
   public Args getArgs() { return this.args; }
 
-  private void signModel(OutputStreamFastTextOutput os) throws IOException {
-    os.writeInt(FASTTEXT_FILEFORMAT_MAGIC_INT);
-    os.writeInt(FASTTEXT_VERSION);
+  private void signModel(int magic, int version, OutputStreamFastTextOutput os) throws IOException {
+    os.writeInt(magic);
+    os.writeInt(version);
   }
 
-  private static boolean checkModel(InputStreamFastTextInput is) throws IOException {
-    int magic;
-    int version;
-    magic = is.readInt();
+  private static boolean checkModel(int magic, int version) throws IOException {
     if (magic != FASTTEXT_FILEFORMAT_MAGIC_INT) {
       logger.error("Unhandled file format");
       return false;
     }
-    version = is.readInt();
-    if (version != FASTTEXT_VERSION) {
+    if (version > FASTTEXT_VERSION) {
       logger.error("Input model version (" + version + ") doesn't match current version (" + FASTTEXT_VERSION + ")");
       return false;
     }
     return true;
   }
 
-  private void predict(List<Integer> words, List<Integer> labels, List<FastTextPrediction> predictions, int k) {
+  private void predict(List<Integer> words, List<FastTextPrediction> predictions, int k, float threshold) {
     if (!words.isEmpty()) {
       Vector hidden = new Vector(args.getDimension());
       Vector output = new Vector(dict.nLabels());
@@ -136,7 +135,10 @@ public class FastText {
         .expectedSize(dict.nLabels())
         .create();
       int[] input = Ints.toArray(words);
-      model.predict(input, k, modelPredictions, hidden, output);
+      if (words.isEmpty()) {
+        return;
+      }
+      model.predict(input, k, threshold, modelPredictions, hidden, output);
       while (!modelPredictions.isEmpty()) {
         Pair<Float, Integer> pred = modelPredictions.pollFirst();
         predictions.add(new FastTextPrediction(dict.getLabel(pred.last()), pred.first()));
@@ -147,27 +149,41 @@ public class FastText {
   /**
    * Classifies a document represented as a String with whitespace separated tokens.
    * Returns the prediction with highest probability.
+   * k and threshold will be applied together to determine the returned labels.
    * @param s input document
-   * @param k number of predictions
-   * @return k top predictions
+   * @param k controls the number of returned labels. A choice of 5, will return the 5 most probable labels
+   * @param threshold filters the returned labels by a threshold on probability. A choice of 0.5 will return labels with at least 0.5 probability
+   * @return top predictions (max k) with probability above threshold
    */
-  public List<FastTextPrediction> predict(String s, int k) {
+  public List<FastTextPrediction> predict(String s, int k, float threshold) {
     List<Integer> words = new ArrayList<>();
     List<Integer> labels = new ArrayList<>();
     List<FastTextPrediction> predictions = new ArrayList<>(dict.nLabels());
-    dict.getLine(s, words, labels, model.rng());
-    predict(words, labels, predictions, k);
+    dict.getLine(s, words, labels);
+    predict(words, predictions, k, threshold);
     return predictions;
   }
 
   /**
    * Classifies a document represented as a String with whitespace separated tokens.
-   * Returns the prediction with highest probability.
+   * Returns the prediction with highest probability if above the given threshold, otherwise returns null.
    * @param s input document
+   * @param k controls the number of returned labels. A choice of 5, will return the 5 most probable labels
+   * @return k top prediction
+   */
+  public List<FastTextPrediction> predict(String s, int k) {
+    return predict(s, k, 0f);
+  }
+
+  /**
+   * Classifies a document represented as a String with whitespace separated tokens.
+   * Returns the prediction with highest probability if above the given threshold, otherwise returns null.
+   * @param s input document
+   * @param threshold filters the returned label by a threshold on probability
    * @return top prediction
    */
-  public FastTextPrediction predict(String s) {
-    List<FastTextPrediction> predictions = predict(s, 1);
+  public FastTextPrediction predict(String s, float threshold) {
+    List<FastTextPrediction> predictions = predict(s, 1, threshold);
     if (!predictions.isEmpty()) {
       return predictions.get(0);
     } else {
@@ -177,26 +193,76 @@ public class FastText {
 
   /**
    * Classifies a document represented as a String with whitespace separated tokens.
+   * Returns the prediction with highest probability.
+   * @param s input document
+   */
+  public FastTextPrediction predict(String s) {
+    return predict(s, 0f);
+  }
+
+  /**
+   * Classifies a document represented as a String with whitespace separated tokens.
+   * Returns prediction on all labels which have probability above threshold.
+   * @param s input document
+   * @param threshold filters the returned label by a threshold on probability
+   * @return all predictions with probability above threshold
+   */
+  public List<FastTextPrediction> predictAll(String s, float threshold) {
+    return predict(s, dict.nLabels(), threshold);
+  }
+
+  /**
+   * Classifies a document represented as a String with whitespace separated tokens.
    * Returns prediction on all labels.
    * @param s input document
    * @return predictions on all labels
    */
-  public List<FastTextPrediction> predictAll(String s) { return predict(s, dict.nLabels()); }
+  public List<FastTextPrediction> predictAll(String s) { return predictAll(s, 0f); }
 
   /**
    * Classifies a document represented as a list of tokens.
-   * Returns the prediction with highest probability.
+   * Returns the predictions with highest probability.
+   * k and threshold will be applied together to determine the returned labels.
    * @param tokens input document
    * @param k number of predictions
-   * @return k top predictions
+   * @param threshold filters the returned label by a threshold on probability
+   * @return top predictions (max k) with probability above threshold
    */
-  public List<FastTextPrediction> predict(List<String> tokens, int k) {
+  public List<FastTextPrediction> predict(List<String> tokens, int k, float threshold) {
     List<Integer> words = new ArrayList<>();
     List<Integer> labels = new ArrayList<>();
     List<FastTextPrediction> predictions = new ArrayList<>(dict.nLabels());
-    dict.getLine(tokens, words, labels, model.rng());
-    predict(words, labels, predictions, k);
+    dict.getLine(tokens, words, labels);
+    predict(words, predictions, k, threshold);
     return predictions;
+  }
+
+  /**
+   * Classifies a document represented as a list of tokens.
+   * Returns the predictions with highest probability.
+   * k and threshold will be applied together to determine the returned labels.
+   * @param tokens input document
+   * @param k number of predictions
+   * @return top predictions (max k) with probability above threshold
+   */
+  public List<FastTextPrediction> predict(List<String> tokens, int k) {
+    return predict(tokens, k, 0f);
+  }
+
+  /**
+   * Classifies a document represented as a list of tokens.
+   * Returns the prediction with highest probability if above threshold, otherwise returns null.
+   * @param tokens input document
+   * @param threshold filters the returned label by a threshold on probability
+   * @return top prediction if probability above threshold
+   */
+  public FastTextPrediction predict(List<String> tokens, float threshold) {
+    List<FastTextPrediction> predictions = predict(tokens, 1, threshold);
+    if (!predictions.isEmpty()) {
+      return predictions.get(0);
+    } else {
+      return null;
+    }
   }
 
   /**
@@ -206,12 +272,18 @@ public class FastText {
    * @return top prediction
    */
   public FastTextPrediction predict(List<String> tokens) {
-    List<FastTextPrediction> predictions = predict(tokens, 1);
-    if (!predictions.isEmpty()) {
-      return predictions.get(0);
-    } else {
-      return null;
-    }
+    return predict(tokens, 0f);
+  }
+
+  /**
+   * Classifies a document represented as a list of tokens.
+   * Returns prediction on all labels filtered by threshold on probability.
+   * @param tokens input document
+   * @param threshold filters the returned label by a threshold on probability
+   * @return predictions on all labels with probability above threshold
+   */
+  public List<FastTextPrediction> predictAll(List<String> tokens, float threshold) {
+    return predict(tokens, dict.nLabels(), threshold);
   }
 
   /**
@@ -221,7 +293,7 @@ public class FastText {
    * @return predictions on all labels
    */
   public List<FastTextPrediction> predictAll(List<String> tokens) {
-    return predict(tokens, dict.nLabels());
+    return predictAll(tokens, 0f);
   }
 
   /**
@@ -328,7 +400,7 @@ public class FastText {
     List<Integer> labels = new ArrayList<>();
     Vector vec = new Vector(args.getDimension());
     vec.zero();
-    dict.getLine(text, tokens, labels, model.rng());
+    dict.getLine(text, tokens, labels);
     for (Integer token : tokens) {
       if (quant) {
         vec.addRow(input, token);
@@ -516,12 +588,22 @@ public class FastText {
                                     MMapFile dictFile,
                                     MMapFile inputFile) throws IOException {
     try (InputStreamFastTextInput is = new InputStreamFastTextInput(in)) {
-      if (!checkModel(is)) {
+      int magic = is.readInt();
+      int version = is.readInt();
+      if (!checkModel(magic, version)) {
         throw new IllegalArgumentException("Model file has wrong file format");
       }
       long start = System.nanoTime();
       logger.info("Loading model arguments");
       Args args = Args.load(is);
+      if (version == 11) {
+        // backward compatibility: old supervised models do not use char ngrams.
+        if (args.getModel() == Args.ModelName.SUP) {
+          args.setMaxn(0);
+        }
+        // backward compatibility: use max vocabulary size as word2intSize.
+        args.setUseMaxVocabularySize(true);
+      }
       logger.info("Loading memory-mapped dictionary");
       MMapDictionary dict = MMapDictionary.load(args, dictFile);
       boolean quant = is.readBoolean();
@@ -536,6 +618,10 @@ public class FastText {
         wi = MMapMatrix.load(inputFile);
         logger.info("... done");
       }
+      if (!quant && dict.isPruned()) {
+        throw new IllegalArgumentException("Invalid model file.\n" +
+            "Please download the updated model from www.fasttext.cc.\n");
+      }
       boolean qout = is.readBoolean();
       args.setQOut(qout);
       Matrix wo = null;
@@ -550,7 +636,7 @@ public class FastText {
         logger.info("... done");
       }
       logger.info("Initiating model");
-      FastText fastText = new FastText(args, dict, wi, wo, quant, qwi, qwo, true);
+      FastText fastText = new FastText(args, version, dict, wi, wo, quant, qwi, qwo, true);
       long end = System.nanoTime();
       double took = (end - start) / 1000000000d;
       logger.info(String.format(Locale.ENGLISH, "FastText model loaded (%.3fs)", took));
@@ -564,12 +650,22 @@ public class FastText {
    */
   public static FastText loadModel(InputStream in) throws IOException {
     try (InputStreamFastTextInput is = new InputStreamFastTextInput(in)) {
-      if (!checkModel(is)) {
+      int magic = is.readInt();
+      int version = is.readInt();
+      if (!checkModel(magic, version)) {
         throw new IllegalArgumentException("Model file has wrong file format");
       }
       long start = System.nanoTime();
       logger.info("Loading model arguments");
       Args args = Args.load(is);
+      if (version == 11) {
+        // backward compatibility: old supervised models do not use char ngrams.
+        if (args.getModel() == Args.ModelName.SUP) {
+          args.setMaxn(0);
+        }
+        // backward compatibility: use max vocabulary size as word2intSize.
+        args.setUseMaxVocabularySize(true);
+      }
       logger.info("Loading dictionary");
       Dictionary dict = Dictionary.load(args, is);
       boolean quant = is.readBoolean();
@@ -584,6 +680,10 @@ public class FastText {
         wi = Matrix.load(is);
         logger.info("... done");
       }
+      if (!quant && dict.isPruned()) {
+        throw new IllegalArgumentException("Invalid model file.\n" +
+            "Please download the updated model from www.fasttext.cc.\n");
+      }
       boolean qout = is.readBoolean();
       args.setQOut(qout);
       Matrix wo = null;
@@ -598,7 +698,7 @@ public class FastText {
         logger.info("... done");
       }
       logger.info("Initiating model");
-      FastText fastText = new FastText(args, dict, wi, wo, quant, qwi, qwo, false);
+      FastText fastText = new FastText(args, version, dict, wi, wo, quant, qwi, qwo, false);
       long end = System.nanoTime();
       double took = (end - start) / 1000000000d;
       logger.info(String.format(Locale.ENGLISH, "FastText model loaded (%.3fs)", took));
@@ -646,7 +746,7 @@ public class FastText {
       throw new IllegalArgumentException("Cannot save memory-mapped model");
     }
     try (OutputStreamFastTextOutput os = new OutputStreamFastTextOutput(out)) {
-      signModel(os);
+      signModel(FASTTEXT_FILEFORMAT_MAGIC_INT, version, os);
       args.save(os);
       ((Dictionary) dict).save(os);
       os.writeBoolean(quant);
@@ -691,7 +791,7 @@ public class FastText {
       logger.info("Saving core model to " + modelFile.getCanonicalPath());
     }
     try (OutputStreamFastTextOutput os = new OutputStreamFastTextOutput(new FileOutputStream(modelFile))) {
-      signModel(os);
+      signModel(FASTTEXT_FILEFORMAT_MAGIC_INT, version, os);
       args.save(os);
       os.writeBoolean(quant);
       os.writeBoolean(args.getQOut());
@@ -727,7 +827,8 @@ public class FastText {
     }
     long end = System.nanoTime();
     double took = (end - start) / 1000000000d;
-    logger.info(String.format(Locale.ENGLISH, "FastText model successfully converted to mmapped (took %.3fs).", took));
+    logger.info(String.format(Locale.ENGLISH,
+        "FastText model successfully converted to mmapped (took %.3fs).", took));
   }
 
 

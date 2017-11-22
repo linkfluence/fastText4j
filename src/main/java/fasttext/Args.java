@@ -65,13 +65,18 @@ public class Args {
   private final ModelName model;
   private final int bucket;
   private final int minn;
-  private final int maxn;
+
+  private int maxn;
+
   private final int lrUpdateRate;
   private final double t;
 
   private String label = "__label__";
   private int verbose = 2;
   private boolean qout = false;
+
+  // custom fastText4j param to handle backward compatibility
+  private boolean useMaxVocabularySize = false;
 
   private Args(int dim, int ws, int epoch, int minCount, int neg, int wordNgrams,
                LossName loss, ModelName model, int bucket, int minn, int maxn,
@@ -135,6 +140,8 @@ public class Args {
     return this.maxn;
   }
 
+  public void setMaxn(int maxn) { this.maxn = maxn; }
+
   public int getLearningRateUpdateRate() {
     return this.lrUpdateRate;
   }
@@ -163,6 +170,12 @@ public class Args {
 
   public void setQOut(boolean qout) {
     this.qout = qout;
+  }
+
+  public boolean getUseMaxVocabularySize() { return this.useMaxVocabularySize; }
+
+  public void setUseMaxVocabularySize(boolean useMaxVocabularySize) {
+    this.useMaxVocabularySize = useMaxVocabularySize;
   }
 
   public void save(OutputStreamFastTextOutput os) throws IOException {

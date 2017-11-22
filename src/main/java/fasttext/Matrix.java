@@ -68,6 +68,9 @@ public class Matrix implements ReadableMatrix {
     for (int j = 0; j < n; j++) {
       d += data[i * n + j] * vec.at(j);
     }
+    if (Float.isNaN(d)) {
+      throw new IllegalStateException("Encountered NaN.");
+    }
     return d;
   }
 
@@ -122,6 +125,9 @@ public class Matrix implements ReadableMatrix {
     for (int j = 0; j < n; j++) {
       float v = data[i * n + j];
       norm += v * v;
+    }
+    if (Float.isNaN(norm)) {
+      throw new IllegalStateException("Encountered NaN.");
     }
     return (float) Math.sqrt(norm);
   }
