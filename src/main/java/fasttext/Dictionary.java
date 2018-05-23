@@ -107,7 +107,7 @@ public class Dictionary extends BaseDictionary {
     }
 
     Map<Integer, Integer> pruneIdx = new HashMap<>(Math.max(0, pruneIdxSize));
-    if (pruneIdxSize != -1) {
+    if (pruneIdxSize > 0) {
       for (int i = 0; i < pruneIdxSize; i++) {
         int first = is.readInt();
         int second = is.readInt();
@@ -142,9 +142,11 @@ public class Dictionary extends BaseDictionary {
     }
     orderedWord2int.sort(Comparator.comparing(Pair::first));
 
-    List<Pair<Integer, Integer>> orderedPruneIdx = new ArrayList<>(pruneIdxSize);
-    for (Map.Entry<Integer, Integer> p : pruneIdx.entrySet()) {
-      orderedPruneIdx.add(new Pair<>(p.getKey(), p.getValue()));
+    List<Pair<Integer, Integer>> orderedPruneIdx = new ArrayList<>(Math.max(0, pruneIdxSize));
+    if (pruneIdxSize > 0) {
+      for (Map.Entry<Integer, Integer> p : pruneIdx.entrySet()) {
+        orderedPruneIdx.add(new Pair<>(p.getKey(), p.getValue()));
+      }
     }
     orderedPruneIdx.sort(Comparator.comparing(Pair::first));
 
@@ -171,7 +173,7 @@ public class Dictionary extends BaseDictionary {
       subwordsByteArrayLength + // subwords array
       Integer.BYTES             // subwords array length
     );
-    int headerSize = 36 + 8 * pruneIdxSize + 12 * size;
+    int headerSize = 36 + 8 * Math.max(0, pruneIdxSize) + 12 * size;
     int bufferSize = headerSize + entryByteArraySize * words.length;
 
     try (OutputStreamResourceOutput fos =

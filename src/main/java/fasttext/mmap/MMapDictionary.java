@@ -244,17 +244,18 @@ public class MMapDictionary extends BaseDictionary {
     int nLabels = in.readInt();
     long nTokens = in.readLong();
     int pruneIdxSize = (int) in.readLong();
+    int pruneArrSize = Math.max(0, pruneIdxSize);
 
-    int[] pruneKeys = new int[pruneIdxSize];
-    int[] pruneValues = new int[pruneIdxSize];
-
-    for (int i = 0; i < pruneIdxSize; i++) {
-      pruneKeys[i] = in.readInt();
+    int[] pruneKeys = new int[pruneArrSize];
+    int[] pruneValues = new int[pruneArrSize];
+    if (pruneIdxSize > 0) {
+      for (int i = 0; i < pruneIdxSize; i++) {
+        pruneKeys[i] = in.readInt();
+      }
+      for (int i = 0; i < pruneIdxSize; i++) {
+        pruneValues[i] = in.readInt();
+      }
     }
-    for (int i = 0; i < pruneIdxSize; i++) {
-      pruneValues[i] = in.readInt();
-    }
-
     // word2int
     long[] wordHashes = new long[size];
     int[] ids = new int[size];
@@ -265,7 +266,7 @@ public class MMapDictionary extends BaseDictionary {
       ids[i] = in.readInt();
     }
 
-    int entriesPositionOffset = 36 + 8 * pruneIdxSize + 12 * size;
+    int entriesPositionOffset = 36 + 8 * pruneArrSize + 12 * size;
 
     return new MMapDictionary(args, size, nWords, nLabels, nTokens, pruneIdxSize,
       mmap, in, entriesPositionOffset, wordByteArrayLength, subwordsByteArrayLength,
