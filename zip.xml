@@ -29,9 +29,6 @@
     <dependencySets>
         <dependencySet>
             <outputDirectory>lib</outputDirectory>
-            <excludes>
-                <exclude>*:pom</exclude>
-            </excludes>
             <useStrictFiltering>true</useStrictFiltering>
             <useProjectArtifact>true</useProjectArtifact>
             <scope>runtime</scope>

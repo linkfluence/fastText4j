@@ -9,6 +9,10 @@
     <version>0.2.1-SNAPSHOT</version>
     <description>Facebook Research FastText for Java</description>
 
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>com.google.guava</groupId>
