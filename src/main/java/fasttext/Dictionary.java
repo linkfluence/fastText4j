@@ -173,11 +173,9 @@ public class Dictionary extends BaseDictionary {
       subwordsByteArrayLength + // subwords array
       Integer.BYTES             // subwords array length
     );
-    int headerSize = 36 + 8 * Math.max(0, pruneIdxSize) + 12 * size;
-    int bufferSize = headerSize + entryByteArraySize * words.length;
 
     try (OutputStreamResourceOutput fos =
-           new OutputStreamResourceOutput("dictionary", os, bufferSize)) {
+           new OutputStreamResourceOutput("dictionary", os)) {
       // dictionary utilities
       fos.writeInt(wordByteArrayLength);
       fos.writeInt(subwordsByteArrayLength);

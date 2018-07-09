@@ -30,6 +30,14 @@ public class OutputStreamResourceOutput extends ResourceOutput {
   }
 
   /**
+   * Creates a new {@link OutputStreamResourceOutput} with the given buffer size.
+   */
+  public OutputStreamResourceOutput(String name, OutputStream out) {
+    super("FSResourceOutput(path=\"" + name + "\")", name);
+    this.os = new BufferedOutputStream(new CheckedOutputStream(out, crc));
+  }
+
+  /**
    * Creates a new {@link OutputStreamResourceOutput}.
    */
   public OutputStreamResourceOutput(String resourceDescription, String name, OutputStream out) {

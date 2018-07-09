@@ -51,9 +51,7 @@ public class Matrix implements ReadableMatrix {
 
   public float[] atRow(int i) {
     float[] r = new float[n];
-    for (int j = 0; j < n; j++) {
-      r[j] = data[i * n];
-    }
+    System.arraycopy(data, i * n, r, 0, n);
     return r;
   }
 
@@ -196,8 +194,7 @@ public class Matrix implements ReadableMatrix {
   }
 
   public void saveToMMap(OutputStream os) throws IOException {
-    int bufferSize = 16 + 4 * m * n;
-    try (OutputStreamResourceOutput fos = new OutputStreamResourceOutput("matrix", os, bufferSize)) {
+    try (OutputStreamResourceOutput fos = new OutputStreamResourceOutput("matrix", os)) {
       fos.writeLong(m);
       fos.writeLong(n);
       for (int i = 0; i < m * n; i++) {

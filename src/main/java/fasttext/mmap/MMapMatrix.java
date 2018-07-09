@@ -26,7 +26,7 @@ public class MMapMatrix implements ReadableMatrix {
 
   private float readAt(int i, int j) {
     try {
-      in.seek(16 + (i * n + j) * 4);
+      in.seek( 16L + (long) (i * n + j) * 4);
       return in.readFloat();
     } catch (IOException ex) {
       throw new IllegalArgumentException("Could not read float from matrix at i=" + i + " j=" + j);
@@ -36,7 +36,7 @@ public class MMapMatrix implements ReadableMatrix {
   private float[] readRow(int i) {
     float[] r = new float[n];
     try {
-      in.seek(16 + (i * n) * 4);
+      in.seek(16L + (long) (i * n) * 4);
       for (int j = 0; j < n; j++) {
         r[j] = in.readFloat();
       }

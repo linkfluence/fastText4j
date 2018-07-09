@@ -64,14 +64,14 @@ public class MMapDictionary extends BaseDictionary {
    * Position of an entry based on its id. Returns the position.
    */
   private long entryPosition(int id) {
-    return entriesPositionOffset + (entryByteArrayLength()) * id;
+    return entriesPositionOffset + (long) entryByteArrayLength() * id;
   }
 
   /**
    * Position of an entry field based on the entry's id and the field's offset.
    */
   private long entryFieldPosition(int id, int offset) {
-    return entryPosition(id) + offset;
+    return entryPosition(id) + (long) offset;
   }
 
   /**

@@ -32,7 +32,7 @@ public class MMapQMatrix implements ReadableQMatrix {
     public int get(int i) {
       Preconditions.checkPositionIndex(i, codeSize);
       try {
-        in.seek(offset + i);
+        in.seek(offset + (long) i);
         return in.readByteAsInt();
       } catch (IOException ex) {
         throw new IllegalArgumentException("Could not get code for i = " + i);

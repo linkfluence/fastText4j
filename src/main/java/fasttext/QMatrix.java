@@ -169,11 +169,7 @@ public class QMatrix implements ReadableQMatrix {
   }
 
   public void saveToMMap(OutputStream os) throws IOException {
-    int bufferSize = 37 + codes.size() + pq.centroids().length * 4;
-    if (qnorm) {
-      bufferSize += m + 16 + npq.centroids().length * 4;
-    }
-    try (OutputStreamResourceOutput fos = new OutputStreamResourceOutput("qmatrix", os, bufferSize)) {
+    try (OutputStreamResourceOutput fos = new OutputStreamResourceOutput("qmatrix", os)) {
       fos.writeBoolean(qnorm);
       fos.writeLong(m);
       fos.writeLong(n);
