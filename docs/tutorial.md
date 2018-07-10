@@ -49,7 +49,7 @@ public class Example {
       // Nearest neighbors queries
       List<FastTextSynonym> nearestNeighbors = model.nn("hello", 10);
 
-      System.out.println("\nNearest neighbors of \"hello\" are: ");
+      System.out.println("Nearest neighbors of \"hello\" are: ");
       for (FastTextSynonym s : nearestNeighbors) {
         System.out.println(s.word() + " -> " + s.cosineSimilarity());
       }
@@ -57,7 +57,7 @@ public class Example {
       // Analogy queries
       List<FastTextSynonym> analogies = model.analogies("berlin", "germany", "france", 10);
 
-      System.out.println("\n\"berlin\" + \"germany\" - \"france\" : ");
+      System.out.println("Analogies: \"berlin\" + \"germany\" - \"france\" : ");
       for (FastTextSynonym s : analogies) {
         System.out.println(s.word() + " -> " + s.cosineSimilarity());
       }
@@ -85,9 +85,30 @@ public class Example {
           System.out.println("Error while closing fastText model");
         }
       }
+
     }
 
   }
 
 }
+```
+
+## Convert a model to memory mapped version
+
+You can convert both non-quantized and quantized fastText models to memory-mapped models.
+You will have to use the binary model `.bin` or `.ftz` for the conversion step.
+
+Use the following command to obtain a zip archive containing an executable jar
+with dependencies and a bash script to launch the jar:
+
+``` shell
+$ mvn install -Papp
+```
+
+The zip archive will be built in the `app` folder. You can then use this distribution to run the mmap model conversion:
+
+``` shell
+$ cd app
+$ unzip fasttext4j-app.zip
+$ ./fasttext-mmap.sh -input <fastText-model-path> -output <fasttext-mmap-model-path>
 ```
