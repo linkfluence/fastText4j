@@ -337,19 +337,36 @@ public class FastText {
    * @return sentence vector
    */
   public Vector getSentenceVector(List<String> sentence) {
-    Vector vec = new Vector(args.getDimension());
     Vector svec = new Vector(args.getDimension());
     svec.zero();
-    for (String word : sentence) {
-      getWordVector(word);
-      float norm = vec.norm();
-      if (norm > 0) {
-        vec.mul(1.0f / norm);
-        svec.addVector(vec);
+    if (args.getModel() == Args.ModelName.SUP) {
+      List<Integer> tokens = new ArrayList<>();
+      List<Integer> labels = new ArrayList<>();
+      dict.getLine(sentence, tokens, labels);
+      for (int i = 0; i < tokens.size(); i++) {
+        if (quant) {
+          svec.addRow(qinput, tokens.get(i));
+        } else {
+          svec.addRow(input, tokens.get(i));
+        }
       }
-    }
-    if (sentence.size() > 0) {
-      svec.mul(1.0f / (float) sentence.size());
+      if (!tokens.isEmpty()) {
+        svec.mul(1.0f / (float) tokens.size());
+      }
+    } else {
+      int count = 0;
+      for (String word : sentence) {
+        Vector vec = getWordVector(word);
+        float norm = vec.norm();
+        if (norm > 0) {
+          vec.mul(1.0f / norm);
+          svec.addVector(vec);
+          count++;
+        }
+      }
+      if (count > 0) {
+        svec.mul(1.0f / (float) count);
+      }
     }
     return svec;
   }
